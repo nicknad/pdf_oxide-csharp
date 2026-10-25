@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore csharp/PdfOxideTests/PdfOxideTests.csproj
+
+      - name: Build
+        run: dotnet build csharp/PdfOxideTests/PdfOxideTests.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test csharp/PdfOxideTests/PdfOxideTests.csproj --configuration Release --no-build
+
+  rust:
+    name: Check Rust native library
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Cargo check
+        run: cargo check --locked --manifest-path rust/Cargo.toml
