@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>1.0.2</Version>
+    <PackageId>PdfOxide.Bindings</PackageId>
+    <Description>Cross-platform .NET bindings for PDF Oxide.</Description>
+    <PackageTags>pdf;pdf-generation;pdf-oxide</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
+    <!-- We want to allow unsafe code as required by the generated bindings -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- This is a library that will be consumed -->
+    <OutputType>Library</OutputType>
+    <!-- Suppress CA2255 (ModuleInitializer in library) and CA5392 (DllImport search paths) -->
+    <NoWarn>$(NoWarn);CA2255;CA5392</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Include the generated bindings -->
+    <Compile Include="../../dotnet/PdfOxideBindings.cs" Link="PdfOxideBindings.g.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="README.md" />
+
+    <!-- Ship each native binary as a RID-specific NuGet native asset. -->
+    <None Include="../../runtimes/**/*"
+          Pack="true"
+          PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)"
+          Visible="false" />
+
+    <!-- Keep project-reference builds runnable on the current host. -->
+    <Content Include="../../runtimes/**/*">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Pack>false</Pack>
+    </Content>
+  </ItemGroup>
+
+</Project>

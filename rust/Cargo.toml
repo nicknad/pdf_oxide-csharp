@@ -1,0 +1,14 @@
+[package]
+name = "pdf_oxide_ffi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "pdfoxide_bindings"
+crate-type = ["cdylib"]
+
+[dependencies]
+pdf_oxide = "0.3.78"
+
+[build-dependencies]
+csbindgen = "1.9.8"

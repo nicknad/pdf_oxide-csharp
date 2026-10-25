@@ -1,0 +1,12 @@
+#rust
+/rust/target/
+**/*.rs.bk
+*.pdb
+
+#csharp
+/csharp/**/[Bb]in/
+/csharp/**/[Oo]bj/
+
+# test assets
+/test-assets/
+/.jj/
