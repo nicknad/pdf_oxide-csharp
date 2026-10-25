@@ -34,7 +34,7 @@ namespace PdfOxide
                 {
                     if (NativeMethods.pdf_from_markdown(pMd, pOut) != 0)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                 }
             }
@@ -59,7 +59,7 @@ namespace PdfOxide
                 {
                     if (NativeMethods.pdf_from_text(pText, pOut) != 0)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                 }
             }
@@ -100,7 +100,7 @@ namespace PdfOxide
                     {
                         if (NativeMethods.pdf_images_to_pdf(pPaths, len, pOut) != 0)
                         {
-                            throw new InvalidOperationException(GetLastError());
+                            throw new PdfOxideException(GetLastError());
                         }
                     }
                 }

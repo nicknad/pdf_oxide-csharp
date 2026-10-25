@@ -23,9 +23,13 @@
 //! before another call from the same thread to ensure error messages are
 //! not overwritten.
 
-use pdf_oxide::api::Pdf;
-use pdf_oxide::writer::{DocumentBuilder, PageSize};
 use pdf_oxide::PdfDocument;
+use pdf_oxide::api::Pdf;
+use pdf_oxide::geometry::Rect;
+use pdf_oxide::writer::{
+    DocumentBuilder as PdfWriterBuilder, FluentPageBuilder, ListStyle, PageSize, Table, TableCell,
+    TableRow, TableStyle, TextRun, TextRunStyle,
+};
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::io::{Error as IoError, ErrorKind};
@@ -37,10 +41,281 @@ thread_local! {
     static LAST_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
+const PAGE_KIND_A4: i32 = 0;
+const PAGE_KIND_LETTER: i32 = 1;
+const PAGE_KIND_LEGAL: i32 = 2;
+const PAGE_KIND_A3: i32 = 3;
+const PAGE_KIND_CUSTOM: i32 = 4;
+
+#[derive(Clone, Copy)]
+enum PageKind {
+    A4,
+    Letter,
+    Legal,
+    A3,
+    Custom { width: f32, height: f32 },
+}
+
+impl PageKind {
+    fn from_values(kind: i32, width: f32, height: f32) -> Result<Self, Box<dyn std::error::Error>> {
+        match kind {
+            PAGE_KIND_A4 => Ok(Self::A4),
+            PAGE_KIND_LETTER => Ok(Self::Letter),
+            PAGE_KIND_LEGAL => Ok(Self::Legal),
+            PAGE_KIND_A3 => Ok(Self::A3),
+            PAGE_KIND_CUSTOM => {
+                if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+                    return Err(IoError::new(
+                        ErrorKind::InvalidInput,
+                        "custom page dimensions must be positive finite numbers",
+                    )
+                    .into());
+                }
+                Ok(Self::Custom { width, height })
+            }
+            other => Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!("unknown page size code: {other}"),
+            )
+            .into()),
+        }
+    }
+
+    fn page_size(self) -> PageSize {
+        match self {
+            Self::A4 => PageSize::A4,
+            Self::Letter => PageSize::Letter,
+            Self::Legal => PageSize::Legal,
+            Self::A3 => PageSize::A3,
+            Self::Custom { width, height } => PageSize::Custom(width, height),
+        }
+    }
+}
+
+enum TextRunKind {
+    Normal,
+    Bold,
+    Italic,
+    Color { r: f32, g: f32, b: f32 },
+}
+
+enum BuilderOp {
+    Text {
+        x: Option<f32>,
+        y: Option<f32>,
+        text: String,
+        font: Option<String>,
+        size: Option<f32>,
+    },
+    Heading {
+        level: u8,
+        text: String,
+    },
+    Paragraph(String),
+    BulletList(Vec<String>),
+    NumberedList {
+        items: Vec<String>,
+        style: ListStyle,
+    },
+    CodeBlock {
+        language: String,
+        source: String,
+    },
+    RichParagraph(Vec<(String, TextRunKind)>),
+    Space(f32),
+    HorizontalRule,
+    Columns {
+        count: u32,
+        gap: f32,
+        text: String,
+    },
+    Table {
+        rows: Vec<Vec<String>>,
+        header: bool,
+        style: i32,
+    },
+    Image {
+        data: Vec<u8>,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        alt: Option<String>,
+    },
+}
+
+struct PageSpec {
+    kind: PageKind,
+    ops: Vec<BuilderOp>,
+}
+
+#[derive(Default)]
+struct BuilderMetadata {
+    title: Option<String>,
+    author: Option<String>,
+    subject: Option<String>,
+    keywords: Option<String>,
+    creator: Option<String>,
+}
+
 /// State container for the DocumentBuilder API.
-/// This holds the internal DocumentBuilder instance across multiple FFI calls.
+/// Holds the document model accumulated across FFI calls; the PDF is rendered
+/// from the model on save/build so callers can add many elements per page.
 pub struct PdfBuilderState {
-    builder: DocumentBuilder,
+    pages: Vec<PageSpec>,
+    metadata: BuilderMetadata,
+}
+
+impl PdfBuilderState {
+    fn current_page_mut(&mut self) -> Result<&mut PageSpec, Box<dyn std::error::Error>> {
+        self.pages.last_mut().ok_or_else(|| {
+            IoError::new(ErrorKind::InvalidInput, "add a page before adding content").into()
+        })
+    }
+
+    fn build_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut document = PdfWriterBuilder::new();
+        if let Some(value) = &self.metadata.title {
+            document = document.title(value);
+        }
+        if let Some(value) = &self.metadata.author {
+            document = document.author(value);
+        }
+        if let Some(value) = &self.metadata.subject {
+            document = document.subject(value);
+        }
+        if let Some(value) = &self.metadata.keywords {
+            document = document.keywords(value);
+        }
+        if let Some(value) = &self.metadata.creator {
+            document = document.creator(value);
+        }
+
+        for page in &self.pages {
+            let mut page_builder = document.page(page.kind.page_size());
+            for op in &page.ops {
+                page_builder = render_op(page_builder, op)?;
+            }
+            page_builder.done();
+        }
+
+        Ok(document.build()?)
+    }
+}
+
+fn render_op<'a>(
+    mut page: FluentPageBuilder<'a>,
+    op: &BuilderOp,
+) -> Result<FluentPageBuilder<'a>, Box<dyn std::error::Error>> {
+    match op {
+        BuilderOp::Text {
+            x,
+            y,
+            text,
+            font,
+            size,
+        } => {
+            if let (Some(x), Some(y)) = (x, y) {
+                page = page.at(*x, *y);
+            }
+            if let Some(font) = font {
+                page = page.font(font, size.unwrap_or(12.0));
+            } else if let Some(size) = size {
+                page = page.font("Helvetica", *size);
+            }
+            page = page.text(text);
+        }
+        BuilderOp::Heading { level, text } => {
+            page = page.heading(*level, text);
+        }
+        BuilderOp::Paragraph(text) => {
+            page = page.paragraph(text);
+        }
+        BuilderOp::BulletList(items) => {
+            page = page.bullet_list(items);
+        }
+        BuilderOp::NumberedList { items, style } => {
+            page = page.numbered_list(items, *style);
+        }
+        BuilderOp::CodeBlock { language, source } => {
+            page = page.code_block(language, source);
+        }
+        BuilderOp::RichParagraph(runs) => {
+            let text_runs: Vec<TextRun> = runs
+                .iter()
+                .map(|(text, kind)| {
+                    let style = match kind {
+                        TextRunKind::Normal => TextRunStyle::Normal,
+                        TextRunKind::Bold => TextRunStyle::Bold,
+                        TextRunKind::Italic => TextRunStyle::Italic,
+                        TextRunKind::Color { r, g, b } => TextRunStyle::Color {
+                            r: *r,
+                            g: *g,
+                            b: *b,
+                        },
+                    };
+                    TextRun {
+                        text: text.clone(),
+                        style,
+                    }
+                })
+                .collect();
+            page = page.rich_paragraph(&text_runs);
+        }
+        BuilderOp::Space(points) => {
+            page = page.space(*points);
+        }
+        BuilderOp::HorizontalRule => {
+            page = page.horizontal_rule();
+        }
+        BuilderOp::Columns { count, gap, text } => {
+            page = page.columns(*count, *gap, text);
+        }
+        BuilderOp::Table {
+            rows,
+            header,
+            style,
+        } => {
+            let table_rows: Vec<TableRow> = rows
+                .iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    let cells: Vec<TableCell> = row
+                        .iter()
+                        .map(|cell| TableCell::text(cell.clone()))
+                        .collect();
+                    if *header && index == 0 {
+                        TableRow::header(cells)
+                    } else {
+                        TableRow::new(cells)
+                    }
+                })
+                .collect();
+            let mut table = Table::from_rows(table_rows);
+            table = match *style {
+                1 => table.with_style(TableStyle::bordered()),
+                2 => table.with_style(TableStyle::minimal()),
+                _ => table,
+            };
+            page = page.table(table);
+        }
+        BuilderOp::Image {
+            data,
+            x,
+            y,
+            width,
+            height,
+            alt,
+        } => {
+            let rect = Rect::new(*x, *y, *width, *height);
+            page = match alt {
+                Some(alt_text) => page.image_from_bytes_with_alt(data, rect, alt_text)?,
+                None => page.image_from_bytes(data, rect)?,
+            };
+        }
+    }
+
+    Ok(page)
 }
 
 // ============================================================================
@@ -143,9 +418,8 @@ fn to_markdown_internal(
 ) -> Result<CString, Box<dyn std::error::Error>> {
     let path_str = c_string_to_string(path, "path")?;
     let doc = PdfDocument::open(&path_str)?;
-    let page_index = usize::try_from(page_index).map_err(|_| {
-        IoError::new(ErrorKind::InvalidInput, "page index must be non-negative")
-    })?;
+    let page_index = usize::try_from(page_index)
+        .map_err(|_| IoError::new(ErrorKind::InvalidInput, "page index must be non-negative"))?;
     let md = doc.to_markdown(page_index, &Default::default())?;
     Ok(CString::new(md)?)
 }
@@ -285,7 +559,9 @@ fn images_to_pdf_internal(
     output_path: *const c_char,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if len < 0 {
-        return Err(IoError::new(ErrorKind::InvalidInput, "image count must not be negative").into());
+        return Err(
+            IoError::new(ErrorKind::InvalidInput, "image count must not be negative").into(),
+        );
     }
     if len > 0 && paths.is_null() {
         return Err(IoError::new(ErrorKind::InvalidInput, "image paths must not be null").into());
@@ -310,17 +586,90 @@ fn images_to_pdf_internal(
 // DOCUMENT BUILDER API
 // ============================================================================
 
+fn builder_mut<'a>(
+    state: *mut PdfBuilderState,
+) -> Result<&'a mut PdfBuilderState, Box<dyn std::error::Error>> {
+    if state.is_null() {
+        return Err(IoError::new(ErrorKind::InvalidInput, "builder state must not be null").into());
+    }
+    Ok(unsafe { &mut *state })
+}
+
+fn with_builder<F>(state: *mut PdfBuilderState, action: F) -> i32
+where
+    F: FnOnce(&mut PdfBuilderState) -> Result<(), Box<dyn std::error::Error>>,
+{
+    let result = match builder_mut(state) {
+        Ok(state) => action(state),
+        Err(e) => Err(e),
+    };
+
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
+    }
+}
+
+fn optional_string(
+    ptr: *const c_char,
+    argument: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if ptr.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(c_string_to_string(ptr, argument)?))
+    }
+}
+
+fn validate_rect(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
+        return Err(
+            IoError::new(ErrorKind::InvalidInput, "rectangle values must be finite").into(),
+        );
+    }
+    if width <= 0.0 || height <= 0.0 {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "rectangle dimensions must be positive",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn list_style_from_code(style: i32) -> Result<ListStyle, Box<dyn std::error::Error>> {
+    match style {
+        0 => Ok(ListStyle::Decimal),
+        1 => Ok(ListStyle::RomanLower),
+        2 => Ok(ListStyle::AlphaLower),
+        other => Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("unknown list style code: {other}"),
+        )
+        .into()),
+    }
+}
+
 /// Create a new DocumentBuilder state for building PDFs programmatically.
 ///
 /// # Returns
 /// * Pointer to the builder state, or NULL if allocation fails
 ///
 /// # Safety
-/// The returned pointer must be freed using `pdf_builder_create()`.
+/// The returned pointer must be freed using `pdf_builder_free()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_create() -> *mut PdfBuilderState {
     Box::into_raw(Box::new(PdfBuilderState {
-        builder: DocumentBuilder::new(),
+        pages: Vec::new(),
+        metadata: BuilderMetadata::default(),
     }))
 }
 
@@ -334,89 +683,519 @@ pub extern "C" fn pdf_builder_create() -> *mut PdfBuilderState {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdf_builder_free(state: *mut PdfBuilderState) {
     if !state.is_null() {
-        // Convert pointer back to Box and drop it
         drop(unsafe { Box::from_raw(state) });
     }
 }
 
-/// Add a sample page with text content to the document.
-///
-/// # Arguments
-/// * `state` - Pointer to the builder state
-/// * `text` - Text content for the page as a null-terminated C string
-///
-/// # Returns
-/// * 0 on success, -1 on error
-///
-/// # Note
-/// Uses A4 page size. The DocumentBuilder uses a fluent API that consumes
-/// the builder/page, so this provides a simplified wrapper for basic usage.
+/// Set document metadata fields. Null string pointers leave that field unset.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdf_builder_add_sample_page(
+pub extern "C" fn pdf_builder_set_metadata(
+    state: *mut PdfBuilderState,
+    title: *const c_char,
+    author: *const c_char,
+    subject: *const c_char,
+    keywords: *const c_char,
+    creator: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let title = optional_string(title, "title")?;
+        let author = optional_string(author, "author")?;
+        let subject = optional_string(subject, "subject")?;
+        let keywords = optional_string(keywords, "keywords")?;
+        let creator = optional_string(creator, "creator")?;
+
+        if let Some(value) = title {
+            state.metadata.title = Some(value);
+        }
+        if let Some(value) = author {
+            state.metadata.author = Some(value);
+        }
+        if let Some(value) = subject {
+            state.metadata.subject = Some(value);
+        }
+        if let Some(value) = keywords {
+            state.metadata.keywords = Some(value);
+        }
+        if let Some(value) = creator {
+            state.metadata.creator = Some(value);
+        }
+        Ok(())
+    })
+}
+
+/// Add a page and make it the target of subsequent content calls.
+///
+/// `kind` is 0=A4, 1=Letter, 2=Legal, 3=A3, 4=Custom.
+/// `width` and `height` are only used for custom pages, in points.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_page(
+    state: *mut PdfBuilderState,
+    kind: i32,
+    width: f32,
+    height: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let kind = PageKind::from_values(kind, width, height)?;
+        state.pages.push(PageSpec {
+            kind,
+            ops: Vec::new(),
+        });
+        Ok(())
+    })
+}
+
+/// Add text at the current cursor position. A null font uses the default.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_text(
+    state: *mut PdfBuilderState,
+    text: *const c_char,
+    font: *const c_char,
+    size: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let text = c_string_to_string(text, "text")?;
+        let font = optional_string(font, "font")?;
+        let size = (size.is_finite() && size > 0.0).then_some(size);
+        state.current_page_mut()?.ops.push(BuilderOp::Text {
+            x: None,
+            y: None,
+            text,
+            font,
+            size,
+        });
+        Ok(())
+    })
+}
+
+/// Add text at an absolute position, in PDF points.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_text_at(
+    state: *mut PdfBuilderState,
+    x: f32,
+    y: f32,
+    text: *const c_char,
+    font: *const c_char,
+    size: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "text position must be finite").into(),
+            );
+        }
+        let text = c_string_to_string(text, "text")?;
+        let font = optional_string(font, "font")?;
+        let size = (size.is_finite() && size > 0.0).then_some(size);
+        state.current_page_mut()?.ops.push(BuilderOp::Text {
+            x: Some(x),
+            y: Some(y),
+            text,
+            font,
+            size,
+        });
+        Ok(())
+    })
+}
+
+/// Add a heading at the current cursor position. Levels are 1 through 6.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_heading(
+    state: *mut PdfBuilderState,
+    level: i32,
+    text: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        if !(1..=6).contains(&level) {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "heading level must be between 1 and 6",
+            )
+            .into());
+        }
+        let text = c_string_to_string(text, "text")?;
+        state.current_page_mut()?.ops.push(BuilderOp::Heading {
+            level: level as u8,
+            text,
+        });
+        Ok(())
+    })
+}
+
+/// Add a wrapped paragraph at the current cursor position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_paragraph(
     state: *mut PdfBuilderState,
     text: *const c_char,
 ) -> i32 {
-    let text_str = match c_string_to_string(text, "text") {
-        Ok(s) => s,
-        Err(e) => {
-            set_last_error(e);
-            return -1;
-        }
-    };
+    with_builder(state, |state| {
+        let text = c_string_to_string(text, "text")?;
+        state
+            .current_page_mut()?
+            .ops
+            .push(BuilderOp::Paragraph(text));
+        Ok(())
+    })
+}
 
-    if state.is_null() {
-        set_last_error("builder state must not be null");
+/// Add a bullet or numbered list. Items are newline-separated.
+/// `numbered` is 0 for bullets; `style` is 0=decimal, 1=roman, 2=alpha.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_list(
+    state: *mut PdfBuilderState,
+    items: *const c_char,
+    numbered: i32,
+    style: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let text = c_string_to_string(items, "items")?;
+        let values: Vec<String> = text.lines().map(str::to_owned).collect();
+        if values.is_empty() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "list must contain at least one item",
+            )
+            .into());
+        }
+
+        let op = if numbered == 0 {
+            BuilderOp::BulletList(values)
+        } else {
+            BuilderOp::NumberedList {
+                items: values,
+                style: list_style_from_code(style)?,
+            }
+        };
+        state.current_page_mut()?.ops.push(op);
+        Ok(())
+    })
+}
+
+/// Add a monospace code block at the current cursor position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_code_block(
+    state: *mut PdfBuilderState,
+    language: *const c_char,
+    source: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let language = c_string_to_string(language, "language")?;
+        let source = c_string_to_string(source, "source")?;
+        state
+            .current_page_mut()?
+            .ops
+            .push(BuilderOp::CodeBlock { language, source });
+        Ok(())
+    })
+}
+
+/// Add a paragraph made of styled text runs.
+///
+/// `styles` uses 0=normal, 1=bold, 2=italic, 3=color. `colors` is a flat
+/// RGB array (3 floats per run) and must be provided when any run is colored.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_add_rich_paragraph(
+    state: *mut PdfBuilderState,
+    texts: *const *const c_char,
+    styles: *const i32,
+    colors: *const f32,
+    len: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        if len < 0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "text run count must not be negative",
+            )
+            .into());
+        }
+        if len == 0 {
+            return Ok(());
+        }
+        if texts.is_null() || styles.is_null() {
+            return Err(IoError::new(ErrorKind::InvalidInput, "text runs must not be null").into());
+        }
+
+        let mut runs = Vec::with_capacity(len as usize);
+        for index in 0..len as usize {
+            let text_ptr = unsafe { *texts.add(index) };
+            let style_code = unsafe { *styles.add(index) };
+            let text = c_string_to_string(text_ptr, "text run")?;
+            let style = match style_code {
+                0 => TextRunKind::Normal,
+                1 => TextRunKind::Bold,
+                2 => TextRunKind::Italic,
+                3 => {
+                    if colors.is_null() {
+                        return Err(IoError::new(
+                            ErrorKind::InvalidInput,
+                            "colors must not be null when a run uses the color style",
+                        )
+                        .into());
+                    }
+                    let base = index * 3;
+                    TextRunKind::Color {
+                        r: unsafe { *colors.add(base) },
+                        g: unsafe { *colors.add(base + 1) },
+                        b: unsafe { *colors.add(base + 2) },
+                    }
+                }
+                other => {
+                    return Err(IoError::new(
+                        ErrorKind::InvalidInput,
+                        format!("unknown text run style code: {other}"),
+                    )
+                    .into());
+                }
+            };
+            runs.push((text, style));
+        }
+
+        state
+            .current_page_mut()?
+            .ops
+            .push(BuilderOp::RichParagraph(runs));
+        Ok(())
+    })
+}
+
+/// Add vertical space at the current cursor position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_space(state: *mut PdfBuilderState, points: f32) -> i32 {
+    with_builder(state, |state| {
+        if !points.is_finite() || points < 0.0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "space must be a non-negative finite number",
+            )
+            .into());
+        }
+        state.current_page_mut()?.ops.push(BuilderOp::Space(points));
+        Ok(())
+    })
+}
+
+/// Add a horizontal rule at the current cursor position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_horizontal_rule(state: *mut PdfBuilderState) -> i32 {
+    with_builder(state, |state| {
+        state
+            .current_page_mut()?
+            .ops
+            .push(BuilderOp::HorizontalRule);
+        Ok(())
+    })
+}
+
+/// Lay text out across multiple balanced columns.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_columns(
+    state: *mut PdfBuilderState,
+    count: i32,
+    gap: f32,
+    text: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        if count <= 0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "column count must be positive").into(),
+            );
+        }
+        if !gap.is_finite() || gap < 0.0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "column gap must be non-negative").into(),
+            );
+        }
+        let text = c_string_to_string(text, "text")?;
+        state.current_page_mut()?.ops.push(BuilderOp::Columns {
+            count: count as u32,
+            gap,
+            text,
+        });
+        Ok(())
+    })
+}
+
+/// Add a table with `rows` x `cols` plain-text cells in row-major order.
+/// `header` marks the first row as a header. `style` is 0=default,
+/// 1=bordered, 2=minimal.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_add_table(
+    state: *mut PdfBuilderState,
+    cells: *const *const c_char,
+    rows: i32,
+    cols: i32,
+    header: i32,
+    style: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        if rows <= 0 || cols <= 0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "table dimensions must be positive").into(),
+            );
+        }
+        if style < 0 || style > 2 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!("unknown table style code: {style}"),
+            )
+            .into());
+        }
+        rows.checked_mul(cols).ok_or_else(|| {
+            IoError::new(ErrorKind::InvalidInput, "table dimensions are too large")
+        })?;
+        if cells.is_null() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "table cells must not be null").into(),
+            );
+        }
+
+        let mut table_rows = Vec::with_capacity(rows as usize);
+        for row_index in 0..rows as usize {
+            let mut row = Vec::with_capacity(cols as usize);
+            for col_index in 0..cols as usize {
+                let index = row_index * cols as usize + col_index;
+                let ptr = unsafe { *cells.add(index) };
+                row.push(c_string_to_string(ptr, "table cell")?);
+            }
+            table_rows.push(row);
+        }
+
+        state.current_page_mut()?.ops.push(BuilderOp::Table {
+            rows: table_rows,
+            header: header != 0,
+            style,
+        });
+        Ok(())
+    })
+}
+
+/// Add an image file at a rectangle. `alt` may be null.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_image_file(
+    state: *mut PdfBuilderState,
+    path: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    alt: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        validate_rect(x, y, width, height)?;
+        let path = c_string_to_string(path, "path")?;
+        let data = std::fs::read(&path)?;
+        let alt = optional_string(alt, "alt")?;
+        state.current_page_mut()?.ops.push(BuilderOp::Image {
+            data,
+            x,
+            y,
+            width,
+            height,
+            alt,
+        });
+        Ok(())
+    })
+}
+
+/// Add an in-memory image (PNG or JPEG) at a rectangle. `alt` may be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_add_image_bytes(
+    state: *mut PdfBuilderState,
+    data: *const u8,
+    len: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    alt: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        validate_rect(x, y, width, height)?;
+        if len <= 0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "image data must not be empty").into(),
+            );
+        }
+        if data.is_null() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "image data must not be null").into(),
+            );
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec();
+        let alt = optional_string(alt, "alt")?;
+        state.current_page_mut()?.ops.push(BuilderOp::Image {
+            data: bytes,
+            x,
+            y,
+            width,
+            height,
+            alt,
+        });
+        Ok(())
+    })
+}
+
+/// Save the accumulated document to a file. The builder remains usable.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_save(state: *mut PdfBuilderState, path: *const c_char) -> i32 {
+    with_builder(state, |state| {
+        let path = c_string_to_string(path, "path")?;
+        let bytes = state.build_bytes()?;
+        std::fs::write(&path, bytes)?;
+        Ok(())
+    })
+}
+
+/// Build the accumulated document and return its bytes.
+///
+/// On success the caller owns the buffer and must release it with
+/// `pdf_builder_bytes_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_build(
+    state: *mut PdfBuilderState,
+    out_data: *mut *mut u8,
+    out_len: *mut i32,
+) -> i32 {
+    if out_data.is_null() || out_len.is_null() {
+        set_last_error("output pointers must not be null");
         return -1;
     }
 
-    if let Some(state) = unsafe { state.as_mut() } {
-        // Add a page with A4 size and the provided text
-        state.builder.page(PageSize::A4).text(&text_str);
-        0
-    } else {
-        set_last_error("builder state must not be null");
-        -1
+    let result = match builder_mut(state) {
+        Ok(state) => state.build_bytes(),
+        Err(e) => Err(e),
+    };
+
+    match result {
+        Ok(bytes) => {
+            let mut buffer = bytes.into_boxed_slice();
+            let len = buffer.len();
+            if len > i32::MAX as usize {
+                set_last_error("document is too large to return as a single buffer");
+                return -1;
+            }
+            let ptr = buffer.as_mut_ptr();
+            std::mem::forget(buffer);
+            unsafe {
+                *out_data = ptr;
+                *out_len = len as i32;
+            }
+            0
+        }
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
     }
 }
 
-/// Save the document to a file and free the builder state.
-///
-/// # Arguments
-/// * `state` - Pointer to the builder state (will be consumed)
-/// * `path` - Output file path as a null-terminated C string
-///
-/// # Returns
-/// * 0 on success, -1 on error
-///
-/// # Note
-/// This function consumes the builder state - do not use the state pointer
-/// after calling this function.
+/// Free a buffer returned by `pdf_builder_build`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdf_builder_save(state: *mut PdfBuilderState, path: *const c_char) -> i32 {
-    if state.is_null() {
-        set_last_error("builder state must not be null");
-        -1
-    } else {
-        // This function consumes the state on every call with a non-null state,
-        // including invalid paths and save failures. The managed wrapper must
-        // invalidate its pointer whenever this function returns.
-        let state = unsafe { Box::from_raw(state) };
-        let path_str = match c_string_to_string(path, "path") {
-            Ok(s) => s,
-            Err(e) => {
-                set_last_error(e);
-                return -1;
-            }
-        };
-
-        match state.builder.save(&path_str) {
-            Ok(_) => 0,
-            Err(e) => {
-                set_last_error(e);
-                -1
-            }
-        }
+pub unsafe extern "C" fn pdf_builder_bytes_free(data: *mut u8, len: i32) {
+    if data.is_null() || len <= 0 {
+        return;
     }
+    drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(data, len as usize)) });
 }
 
 // ============================================================================

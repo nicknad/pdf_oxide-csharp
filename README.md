@@ -32,7 +32,37 @@ The package is written to `csharp/PdfOxideBindings/bin/Release/`. The Linux targ
 
 ## Creating PDFs
 
-The bindings expose conversion from Markdown, text, and images, plus a `DocumentBuilder` for adding text pages. The current builder defaults to A4 pages.
+The bindings expose whole-document conversion from Markdown, text, and images:
+
+```csharp
+PdfConverter.ConvertMarkdown("# Hello\n\nWorld", "hello.pdf");
+PdfConverter.ConvertText("Plain text", "text.pdf");
+PdfConverter.ConvertImages(["page1.png", "page2.jpg"], "images.pdf");
+```
+
+`DocumentBuilder` provides multi-element pages with selectable page sizes, metadata, headings, paragraphs, rich text, lists, code blocks, tables, images, and rules:
+
+```csharp
+using var builder = new DocumentBuilder();
+
+builder.SetMetadata(new PdfMetadata { Title = "Report" });
+
+builder.AddPage(PdfPageSize.A4)
+    .Heading(1, "Report")
+    .Paragraph("Wrapped body text.")
+    .BulletList("First", "Second")
+    .RichParagraph(PdfTextRun.Bold("Bold"), PdfTextRun.Normal(" normal"))
+    .Table(new PdfTable([["Name", "Value"], ["Alice", "42"]]) { HasHeaderRow = true })
+    .Image("logo.png", new PdfRect(72, 200, 64, 64))
+    .HorizontalRule();
+
+builder.AddPage(400, 300).Paragraph("Custom-sized page");
+builder.Save("report.pdf");
+
+byte[] bytes = builder.ToBytes();
+```
+
+Native failures throw `PdfOxideException`. Content is buffered and rendered on `Save`/`ToBytes`, so add all content to a page before adding the next one.
 
 ## Dependencies and sources
 

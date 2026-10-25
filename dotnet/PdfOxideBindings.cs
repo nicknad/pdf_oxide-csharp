@@ -124,7 +124,7 @@ namespace PdfOxide
         ///  * Pointer to the builder state, or NULL if allocation fails
         ///
         ///  # Safety
-        ///  The returned pointer must be freed using `pdf_builder_create()`.
+        ///  The returned pointer must be freed using `pdf_builder_free()`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern PdfBuilderState* pdf_builder_create();
@@ -142,38 +142,124 @@ namespace PdfOxide
         internal static extern void pdf_builder_free(PdfBuilderState* state);
 
         /// <summary>
-        ///  Add a sample page with text content to the document.
-        ///
-        ///  # Arguments
-        ///  * `state` - Pointer to the builder state
-        ///  * `text` - Text content for the page as a null-terminated C string
-        ///
-        ///  # Returns
-        ///  * 0 on success, -1 on error
-        ///
-        ///  # Note
-        ///  Uses A4 page size. The DocumentBuilder uses a fluent API that consumes
-        ///  the builder/page, so this provides a simplified wrapper for basic usage.
+        ///  Set document metadata fields. Null string pointers leave that field unset.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "pdf_builder_add_sample_page", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_sample_page(PdfBuilderState* state, byte* text);
+        [DllImport(__DllName, EntryPoint = "pdf_builder_set_metadata", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_set_metadata(PdfBuilderState* state, byte* title, byte* author, byte* subject, byte* keywords, byte* creator);
 
         /// <summary>
-        ///  Save the document to a file and free the builder state.
+        ///  Add a page and make it the target of subsequent content calls.
         ///
-        ///  # Arguments
-        ///  * `state` - Pointer to the builder state (will be consumed)
-        ///  * `path` - Output file path as a null-terminated C string
+        ///  `kind` is 0=A4, 1=Letter, 2=Legal, 3=A3, 4=Custom.
+        ///  `width` and `height` are only used for custom pages, in points.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_page", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_page(PdfBuilderState* state, int kind, float width, float height);
+
+        /// <summary>
+        ///  Add text at the current cursor position. A null font uses the default.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_text(PdfBuilderState* state, byte* text, byte* font, float size);
+
+        /// <summary>
+        ///  Add text at an absolute position, in PDF points.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_text_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_text_at(PdfBuilderState* state, float x, float y, byte* text, byte* font, float size);
+
+        /// <summary>
+        ///  Add a heading at the current cursor position. Levels are 1 through 6.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_heading", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_heading(PdfBuilderState* state, int level, byte* text);
+
+        /// <summary>
+        ///  Add a wrapped paragraph at the current cursor position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_paragraph", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_paragraph(PdfBuilderState* state, byte* text);
+
+        /// <summary>
+        ///  Add a bullet or numbered list. Items are newline-separated.
+        ///  `numbered` is 0 for bullets; `style` is 0=decimal, 1=roman, 2=alpha.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_list", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_list(PdfBuilderState* state, byte* items, int numbered, int style);
+
+        /// <summary>
+        ///  Add a monospace code block at the current cursor position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_code_block", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_code_block(PdfBuilderState* state, byte* language, byte* source);
+
+        /// <summary>
+        ///  Add a paragraph made of styled text runs.
         ///
-        ///  # Returns
-        ///  * 0 on success, -1 on error
-        ///
-        ///  # Note
-        ///  This function consumes the builder state - do not use the state pointer
-        ///  after calling this function.
+        ///  `styles` uses 0=normal, 1=bold, 2=italic, 3=color. `colors` is a flat
+        ///  RGB array (3 floats per run) and must be provided when any run is colored.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_rich_paragraph", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_rich_paragraph(PdfBuilderState* state, byte** texts, int* styles, float* colors, int len);
+
+        /// <summary>
+        ///  Add vertical space at the current cursor position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_space", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_space(PdfBuilderState* state, float points);
+
+        /// <summary>
+        ///  Add a horizontal rule at the current cursor position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_horizontal_rule", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_horizontal_rule(PdfBuilderState* state);
+
+        /// <summary>
+        ///  Lay text out across multiple balanced columns.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_columns", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_columns(PdfBuilderState* state, int count, float gap, byte* text);
+
+        /// <summary>
+        ///  Add a table with `rows` x `cols` plain-text cells in row-major order.
+        ///  `header` marks the first row as a header. `style` is 0=default,
+        ///  1=bordered, 2=minimal.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_table", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_table(PdfBuilderState* state, byte** cells, int rows, int cols, int header, int style);
+
+        /// <summary>
+        ///  Add an image file at a rectangle. `alt` may be null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_image_file", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_image_file(PdfBuilderState* state, byte* path, float x, float y, float width, float height, byte* alt);
+
+        /// <summary>
+        ///  Add an in-memory image (PNG or JPEG) at a rectangle. `alt` may be null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_image_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_image_bytes(PdfBuilderState* state, byte* data, int len, float x, float y, float width, float height, byte* alt);
+
+        /// <summary>
+        ///  Save the accumulated document to a file. The builder remains usable.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_save", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern int pdf_builder_save(PdfBuilderState* state, byte* path);
+
+        /// <summary>
+        ///  Build the accumulated document and return its bytes.
+        ///
+        ///  On success the caller owns the buffer and must release it with
+        ///  `pdf_builder_bytes_free`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_build", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_build(PdfBuilderState* state, byte** out_data, int* out_len);
+
+        /// <summary>
+        ///  Free a buffer returned by `pdf_builder_build`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_bytes_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void pdf_builder_bytes_free(byte* data, int len);
 
         /// <summary>
         ///  Retrieve the last error message.
@@ -217,7 +303,8 @@ namespace PdfOxide
 
     /// <summary>
     ///  State container for the DocumentBuilder API.
-    ///  This holds the internal DocumentBuilder instance across multiple FFI calls.
+    ///  Holds the document model accumulated across FFI calls; the PDF is rendered
+    ///  from the model on save/build so callers can add many elements per page.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct PdfBuilderState

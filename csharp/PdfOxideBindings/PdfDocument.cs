@@ -43,7 +43,7 @@ namespace PdfOxide
                     int count = NativeMethods.pdf_get_page_count(pPath);
                     if (count < 0)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                     return count;
                 }
@@ -68,7 +68,7 @@ namespace PdfOxide
                     byte* result = NativeMethods.pdf_extract_text(pPath);
                     if (result == null)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                     return PtrToStringAndFree(result);
                 }
@@ -89,7 +89,7 @@ namespace PdfOxide
                     byte* result = NativeMethods.pdf_to_markdown_all(pPath);
                     if (result == null)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                     return PtrToStringAndFree(result);
                 }
@@ -111,7 +111,7 @@ namespace PdfOxide
                     byte* result = NativeMethods.pdf_to_markdown(pPath, pageIndex);
                     if (result == null)
                     {
-                        throw new InvalidOperationException(GetLastError());
+                        throw new PdfOxideException(GetLastError());
                     }
                     return PtrToStringAndFree(result);
                 }
