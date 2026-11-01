@@ -64,6 +64,42 @@ byte[] bytes = builder.ToBytes();
 
 Native failures throw `PdfOxideException`. Content is buffered and rendered on `Save`/`ToBytes`, so add all content to a page before adding the next one.
 
+## Reading PDFs
+
+`PdfDocument` exposes text, layout, metadata, and conversion APIs:
+
+```csharp
+var document = new PdfDocument("input.pdf");
+
+string version = document.GetVersion();          // "1.7"
+PdfPageInfo page = document.GetPageInfo(0);      // size, rotation, boxes
+
+string text = document.ExtractText(0);           // per-page text
+string plain = document.ToPlainText();           // all pages
+string html = document.ToHtml(0);                // per-page HTML
+
+File.WriteAllBytes("out.docx", document.ToDocx());
+File.WriteAllBytes("out.pptx", document.ToPptx());
+File.WriteAllBytes("out.xlsx", document.ToXlsx());
+
+IReadOnlyList<PdfTextSpan> spans = document.ExtractSpans(0);
+IReadOnlyList<PdfWord> words = document.ExtractWords(0);
+IReadOnlyList<PdfTextLine> lines = document.ExtractTextLines(0);
+IReadOnlyList<PdfTextChar> chars = document.ExtractChars(0);
+IReadOnlyList<PdfExtractedTable> tables = document.ExtractTables(0);
+IReadOnlyList<PdfPath> paths = document.ExtractPaths(0);
+IReadOnlyList<PdfExtractedImage> images = document.ExtractImages(0); // GetPngData()
+IReadOnlyList<PdfEmbeddedFile> files = document.ExtractEmbeddedFiles();
+IReadOnlyList<PdfEmbeddedFile> fonts = document.ExtractEmbeddedFonts();
+
+PdfDocumentMetadata metadata = document.GetMetadata(); // Info + XMP
+PdfXmpMetadata? xmp = document.GetXmpMetadata();
+IReadOnlyList<PdfOutlineItem> outline = document.GetOutline();
+IReadOnlyList<PdfPageLabel> labels = document.GetPageLabels();
+```
+
+Structured results are deserialized from JSON returned by the native library. Images and embedded files expose base64 payloads through `GetPngData()` and `GetData()`.
+
 ## Dependencies and sources
 
 - [pdf_oxide](https://github.com/yfedoseev/pdf_oxide) — MIT/Apache-2.0

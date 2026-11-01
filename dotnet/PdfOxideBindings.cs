@@ -77,6 +77,144 @@ namespace PdfOxide
         internal static extern int pdf_get_page_count(byte* path);
 
         /// <summary>
+        ///  Extract the text of a single page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_text_page", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_text_page(byte* path, int page_index);
+
+        /// <summary>
+        ///  Convert a single page to plain text.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_plain_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_to_plain_text(byte* path, int page_index);
+
+        /// <summary>
+        ///  Convert all pages to plain text.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_plain_text_all", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_to_plain_text_all(byte* path);
+
+        /// <summary>
+        ///  Convert a single page to HTML.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_html", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_to_html(byte* path, int page_index);
+
+        /// <summary>
+        ///  Convert all pages to HTML.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_html_all", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_to_html_all(byte* path);
+
+        /// <summary>
+        ///  Convert the document to DOCX bytes. Free with `pdf_bytes_free`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_docx_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_to_docx_bytes(byte* path, byte** out_data, int* out_len);
+
+        /// <summary>
+        ///  Convert the document to PPTX bytes. Free with `pdf_bytes_free`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_pptx_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_to_pptx_bytes(byte* path, byte** out_data, int* out_len);
+
+        /// <summary>
+        ///  Convert the document to XLSX bytes. Free with `pdf_bytes_free`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_to_xlsx_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_to_xlsx_bytes(byte* path, byte** out_data, int* out_len);
+
+        /// <summary>
+        ///  Extract images from a page as JSON, including base64-encoded PNG data.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_images", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_images(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract embedded files as JSON, including base64-encoded data.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_embedded_files", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_embedded_files(byte* path);
+
+        /// <summary>
+        ///  Extract embedded fonts as JSON, including base64-encoded data.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_embedded_fonts", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_embedded_fonts(byte* path);
+
+        /// <summary>
+        ///  Extract tables from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_tables", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_tables(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract words from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_words", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_words(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract text lines from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_text_lines", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_text_lines(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract characters from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_chars", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_chars(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract styled text spans from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_spans", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_spans(byte* path, int page_index);
+
+        /// <summary>
+        ///  Extract vector paths from a page as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_extract_paths", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_extract_paths(byte* path, int page_index);
+
+        /// <summary>
+        ///  Get the PDF version as a string such as `1.7`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_version", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_version(byte* path);
+
+        /// <summary>
+        ///  Get page dimensions and rotation as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_page_info", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_page_info(byte* path, int page_index);
+
+        /// <summary>
+        ///  Get document metadata (Info dictionary plus XMP) as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_metadata", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_metadata(byte* path);
+
+        /// <summary>
+        ///  Get XMP metadata as JSON, or `null` when the document has none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_xmp_metadata", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_xmp_metadata(byte* path);
+
+        /// <summary>
+        ///  Get the document outline (bookmarks) as JSON.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_outline", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_outline(byte* path);
+
+        /// <summary>
+        ///  Get the page labels as JSON, such as `[{"page":0,"label":"i"}, ...]`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_get_page_labels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_get_page_labels(byte* path);
+
+        /// <summary>
         ///  Create a PDF from Markdown content.
         ///
         ///  # Arguments
@@ -260,6 +398,12 @@ namespace PdfOxide
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_bytes_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void pdf_builder_bytes_free(byte* data, int len);
+
+        /// <summary>
+        ///  Free a buffer returned by any function that writes to `out_data`/`out_len`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_bytes_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void pdf_bytes_free(byte* data, int len);
 
         /// <summary>
         ///  Retrieve the last error message.
