@@ -24,9 +24,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+
+      - name: Build native library
+        run: cargo build --release --locked --manifest-path rust/Cargo.toml
+
+      - name: Copy native library into runtimes
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp rust/target/release/pdfoxide_bindings.dll \
+              runtimes/win-x64/native/pdfoxide_bindings.dll
+          else
+            cp rust/target/release/libpdfoxide_bindings.so \
+              runtimes/linux-x64/native/libpdfoxide_bindings.so
+          fi
 
       - name: Restore
         run: dotnet restore csharp/PdfOxideTests/PdfOxideTests.csproj
@@ -38,7 +58,7 @@ jobs:
         run: dotnet test csharp/PdfOxideTests/PdfOxideTests.csproj --configuration Release --no-build
 
   rust:
-    name: Check Rust native library
+    name: Check and test Rust native library
     runs-on: ubuntu-latest
 
     steps:
@@ -52,3 +72,47 @@ jobs:
 
       - name: Cargo check
         run: cargo check --locked --manifest-path rust/Cargo.toml
+
+      - name: Cargo test
+        run: cargo test --locked --manifest-path rust/Cargo.toml
+
+  pack:
+    name: Pack NuGet package
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build native library
+        run: cargo build --release --locked --manifest-path rust/Cargo.toml
+
+      - name: Copy native library into runtimes
+        shell: bash
+        run: |
+          cp rust/target/release/libpdfoxide_bindings.so \
+            runtimes/linux-x64/native/libpdfoxide_bindings.so
+
+      - name: Restore
+        run: dotnet restore csharp/PdfOxideBindings/PdfOxideBindings.csproj
+
+      - name: Build
+        run: dotnet build csharp/PdfOxideBindings/PdfOxideBindings.csproj --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack csharp/PdfOxideBindings/PdfOxideBindings.csproj --configuration Release
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: csharp/PdfOxideBindings/bin/Release/*.nupkg
