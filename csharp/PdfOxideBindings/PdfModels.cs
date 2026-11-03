@@ -263,6 +263,177 @@ namespace PdfOxide
     public readonly record struct PdfRect(float X, float Y, float Width, float Height);
 
     /// <summary>
+    /// A point in PDF coordinate space, in points.
+    /// </summary>
+    /// <param name="X">Horizontal coordinate.</param>
+    /// <param name="Y">Vertical coordinate.</param>
+    public readonly record struct PdfPoint(float X, float Y);
+
+    /// <summary>
+    /// Stroke settings for lines, shape outlines, and paths.
+    /// </summary>
+    public sealed record PdfLineStyle
+    {
+        /// <summary>
+        /// Gets the stroke width in points. Defaults to 1.
+        /// </summary>
+        public float Width { get; init; } = 1f;
+
+        /// <summary>
+        /// Gets the stroke color. Defaults to black.
+        /// </summary>
+        public PdfColor Color { get; init; } = new PdfColor(0f, 0f, 0f);
+
+        /// <summary>
+        /// Gets the optional dash pattern. Each entry is an on/off length in
+        /// points. <see langword="null"/> or an empty array draws a solid line.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Performance",
+            "CA1819:Properties should not return arrays",
+            Justification = "A dash pattern is a small value-like option bag; copying on every get would be surprising.")]
+        public float[]? DashPattern { get; init; }
+
+        /// <summary>
+        /// Gets the starting offset into the dash pattern, in points.
+        /// </summary>
+        public float DashPhase { get; init; }
+    }
+
+    /// <summary>
+    /// Stroke and fill settings for a custom graphics path.
+    /// </summary>
+    public sealed record PdfPathStyle
+    {
+        /// <summary>
+        /// Gets the stroke color. Defaults to black; set to <see langword="null"/>
+        /// to disable stroking.
+        /// </summary>
+        public PdfColor? StrokeColor { get; init; } = new PdfColor(0f, 0f, 0f);
+
+        /// <summary>
+        /// Gets the stroke width in points. Defaults to 1.
+        /// </summary>
+        public float StrokeWidth { get; init; } = 1f;
+
+        /// <summary>
+        /// Gets the fill color, or <see langword="null"/> to disable filling.
+        /// </summary>
+        public PdfColor? FillColor { get; init; }
+    }
+
+    /// <summary>
+    /// Builds a custom vector graphics path from a sequence of drawing
+    /// operations. Coordinates are in PDF points.
+    /// </summary>
+    public sealed class PdfGraphicsPath
+    {
+        private readonly List<int> _kinds = [];
+        private readonly List<float> _coordinates = [];
+
+        /// <summary>
+        /// Starts a new subpath at the specified point.
+        /// </summary>
+        /// <param name="x">Horizontal coordinate.</param>
+        /// <param name="y">Vertical coordinate.</param>
+        /// <returns>The current path for method chaining.</returns>
+        public PdfGraphicsPath MoveTo(float x, float y)
+        {
+            Add(0, Finite(x, nameof(x)), Finite(y, nameof(y)));
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a straight line to the specified point.
+        /// </summary>
+        /// <param name="x">Horizontal coordinate.</param>
+        /// <param name="y">Vertical coordinate.</param>
+        /// <returns>The current path for method chaining.</returns>
+        public PdfGraphicsPath LineTo(float x, float y)
+        {
+            Add(1, Finite(x, nameof(x)), Finite(y, nameof(y)));
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a cubic Bezier curve to the specified endpoint.
+        /// </summary>
+        /// <param name="c1x">First control point horizontal coordinate.</param>
+        /// <param name="c1y">First control point vertical coordinate.</param>
+        /// <param name="c2x">Second control point horizontal coordinate.</param>
+        /// <param name="c2y">Second control point vertical coordinate.</param>
+        /// <param name="x">End point horizontal coordinate.</param>
+        /// <param name="y">End point vertical coordinate.</param>
+        /// <returns>The current path for method chaining.</returns>
+        public PdfGraphicsPath CurveTo(float c1x, float c1y, float c2x, float c2y, float x, float y)
+        {
+            Add(2,
+                Finite(c1x, nameof(c1x)),
+                Finite(c1y, nameof(c1y)),
+                Finite(c2x, nameof(c2x)),
+                Finite(c2y, nameof(c2y)),
+                Finite(x, nameof(x)),
+                Finite(y, nameof(y)));
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a rectangle subpath.
+        /// </summary>
+        /// <param name="x">Left coordinate.</param>
+        /// <param name="y">Bottom coordinate.</param>
+        /// <param name="width">Width in points.</param>
+        /// <param name="height">Height in points.</param>
+        /// <returns>The current path for method chaining.</returns>
+        public PdfGraphicsPath Rectangle(float x, float y, float width, float height)
+        {
+            Add(3,
+                Finite(x, nameof(x)),
+                Finite(y, nameof(y)),
+                Finite(width, nameof(width)),
+                Finite(height, nameof(height)));
+            return this;
+        }
+
+        /// <summary>
+        /// Closes the current subpath.
+        /// </summary>
+        /// <returns>The current path for method chaining.</returns>
+        public PdfGraphicsPath Close()
+        {
+            _kinds.Add(4);
+            return this;
+        }
+
+        internal int[] GetKinds()
+        {
+            return _kinds.ToArray();
+        }
+
+        internal float[] GetCoordinates()
+        {
+            return _coordinates.ToArray();
+        }
+
+        private void Add(int kind, params float[] coordinates)
+        {
+            _kinds.Add(kind);
+            _coordinates.AddRange(coordinates);
+        }
+
+        private static float Finite(float value, string parameterName)
+        {
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName, value, "Path coordinates must be finite numbers.");
+            }
+
+            return value;
+        }
+    }
+
+    /// <summary>
     /// Font settings for text added with <see cref="PdfPageBuilder.Text(string, PdfTextStyle?)"/>.
     /// </summary>
     public sealed record PdfTextStyle

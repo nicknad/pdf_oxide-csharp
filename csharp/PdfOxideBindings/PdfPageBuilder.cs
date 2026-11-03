@@ -772,6 +772,269 @@ namespace PdfOxide
             return this;
         }
 
+        /// <summary>
+        /// Draws a stroked rectangle with the default 1pt black style.
+        /// </summary>
+        /// <param name="rect">The rectangle in points.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Rectangle(PdfRect rect)
+        {
+            ValidateRect(rect);
+            _owner.AddRect(_pageIndex, rect);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a filled rectangle with no outline.
+        /// </summary>
+        /// <param name="rect">The rectangle in points.</param>
+        /// <param name="color">The fill color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder FilledRectangle(PdfRect rect, PdfColor color)
+        {
+            ValidateRect(rect);
+            _owner.AddFilledRect(_pageIndex, rect, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a straight line with the default 1pt black style.
+        /// </summary>
+        /// <param name="x1">Start horizontal coordinate.</param>
+        /// <param name="y1">Start vertical coordinate.</param>
+        /// <param name="x2">End horizontal coordinate.</param>
+        /// <param name="y2">End vertical coordinate.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Line(float x1, float y1, float x2, float y2)
+        {
+            ValidateFinite(x1, nameof(x1));
+            ValidateFinite(y1, nameof(y1));
+            ValidateFinite(x2, nameof(x2));
+            ValidateFinite(y2, nameof(y2));
+            _owner.AddLine(_pageIndex, x1, y1, x2, y2);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a stroked rectangle with a caller-supplied line style.
+        /// </summary>
+        /// <param name="rect">The rectangle in points.</param>
+        /// <param name="style">The stroke style.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StrokeRectangle(PdfRect rect, PdfLineStyle style)
+        {
+            ArgumentNullException.ThrowIfNull(style);
+            ValidateRect(rect);
+            _owner.AddStrokeRect(_pageIndex, rect, style);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a straight line with a caller-supplied line style.
+        /// </summary>
+        /// <param name="x1">Start horizontal coordinate.</param>
+        /// <param name="y1">Start vertical coordinate.</param>
+        /// <param name="x2">End horizontal coordinate.</param>
+        /// <param name="y2">End vertical coordinate.</param>
+        /// <param name="style">The stroke style.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StrokeLine(
+            float x1,
+            float y1,
+            float x2,
+            float y2,
+            PdfLineStyle style)
+        {
+            ArgumentNullException.ThrowIfNull(style);
+            ValidateFinite(x1, nameof(x1));
+            ValidateFinite(y1, nameof(y1));
+            ValidateFinite(x2, nameof(x2));
+            ValidateFinite(y2, nameof(y2));
+            _owner.AddStrokeLine(_pageIndex, x1, y1, x2, y2, style);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a circle with optional stroke and fill.
+        /// </summary>
+        /// <param name="cx">Center horizontal coordinate.</param>
+        /// <param name="cy">Center vertical coordinate.</param>
+        /// <param name="radius">Radius in points.</param>
+        /// <param name="stroke">The outline style, or <see langword="null"/> for no outline.</param>
+        /// <param name="fill">The fill color, or <see langword="null"/> for no fill.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Circle(
+            float cx,
+            float cy,
+            float radius,
+            PdfLineStyle? stroke = null,
+            PdfColor? fill = null)
+        {
+            ValidateFinite(cx, nameof(cx));
+            ValidateFinite(cy, nameof(cy));
+            ValidateRadius(radius, nameof(radius));
+            _owner.AddCircle(_pageIndex, cx, cy, radius, stroke, fill);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws an ellipse with optional stroke and fill.
+        /// </summary>
+        /// <param name="cx">Center horizontal coordinate.</param>
+        /// <param name="cy">Center vertical coordinate.</param>
+        /// <param name="rx">Horizontal radius in points.</param>
+        /// <param name="ry">Vertical radius in points.</param>
+        /// <param name="stroke">The outline style, or <see langword="null"/> for no outline.</param>
+        /// <param name="fill">The fill color, or <see langword="null"/> for no fill.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Ellipse(
+            float cx,
+            float cy,
+            float rx,
+            float ry,
+            PdfLineStyle? stroke = null,
+            PdfColor? fill = null)
+        {
+            ValidateFinite(cx, nameof(cx));
+            ValidateFinite(cy, nameof(cy));
+            ValidateRadius(rx, nameof(rx));
+            ValidateRadius(ry, nameof(ry));
+            _owner.AddEllipse(_pageIndex, cx, cy, rx, ry, stroke, fill);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a closed polygon through the specified points.
+        /// </summary>
+        /// <param name="points">The polygon vertices. At least two are required.</param>
+        /// <param name="stroke">The outline style, or <see langword="null"/> for no outline.</param>
+        /// <param name="fill">The fill color, or <see langword="null"/> for no fill.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Polygon(
+            PdfPoint[] points,
+            PdfLineStyle? stroke = null,
+            PdfColor? fill = null)
+        {
+            ArgumentNullException.ThrowIfNull(points);
+            if (points.Length < 2)
+            {
+                throw new ArgumentException("A polygon requires at least two points.", nameof(points));
+            }
+            foreach (PdfPoint point in points)
+            {
+                ValidateFinite(point.X, nameof(points));
+                ValidateFinite(point.Y, nameof(points));
+            }
+            _owner.AddPolygon(_pageIndex, points, stroke, fill);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a stroked circular arc.
+        /// </summary>
+        /// <param name="cx">Center horizontal coordinate.</param>
+        /// <param name="cy">Center vertical coordinate.</param>
+        /// <param name="radius">Radius in points.</param>
+        /// <param name="startDegrees">Start angle in degrees.</param>
+        /// <param name="sweepDegrees">Sweep angle in degrees.</param>
+        /// <param name="style">The stroke style.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Arc(
+            float cx,
+            float cy,
+            float radius,
+            float startDegrees,
+            float sweepDegrees,
+            PdfLineStyle style)
+        {
+            ArgumentNullException.ThrowIfNull(style);
+            ValidateFinite(cx, nameof(cx));
+            ValidateFinite(cy, nameof(cy));
+            ValidateRadius(radius, nameof(radius));
+            ValidateFinite(startDegrees, nameof(startDegrees));
+            ValidateFinite(sweepDegrees, nameof(sweepDegrees));
+            const float DegreesToRadians = MathF.PI / 180f;
+            _owner.AddArc(
+                _pageIndex,
+                cx,
+                cy,
+                radius,
+                startDegrees * DegreesToRadians,
+                (startDegrees + sweepDegrees) * DegreesToRadians,
+                style);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a cubic Bezier curve. A <see langword="null"/> stroke uses a
+        /// 1pt black outline.
+        /// </summary>
+        /// <param name="x0">Start horizontal coordinate.</param>
+        /// <param name="y0">Start vertical coordinate.</param>
+        /// <param name="c1x">First control point horizontal coordinate.</param>
+        /// <param name="c1y">First control point vertical coordinate.</param>
+        /// <param name="c2x">Second control point horizontal coordinate.</param>
+        /// <param name="c2y">Second control point vertical coordinate.</param>
+        /// <param name="x3">End horizontal coordinate.</param>
+        /// <param name="y3">End vertical coordinate.</param>
+        /// <param name="stroke">The stroke style, or <see langword="null"/> for the default black outline.</param>
+        /// <param name="fill">The fill color, or <see langword="null"/> for no fill.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder BezierCurve(
+            float x0,
+            float y0,
+            float c1x,
+            float c1y,
+            float c2x,
+            float c2y,
+            float x3,
+            float y3,
+            PdfLineStyle? stroke = null,
+            PdfColor? fill = null)
+        {
+            ValidateFinite(x0, nameof(x0));
+            ValidateFinite(y0, nameof(y0));
+            ValidateFinite(c1x, nameof(c1x));
+            ValidateFinite(c1y, nameof(c1y));
+            ValidateFinite(c2x, nameof(c2x));
+            ValidateFinite(c2y, nameof(c2y));
+            ValidateFinite(x3, nameof(x3));
+            ValidateFinite(y3, nameof(y3));
+            _owner.AddBezier(_pageIndex, x0, y0, c1x, c1y, c2x, c2y, x3, y3, stroke, fill);
+            return this;
+        }
+
+        /// <summary>
+        /// Draws a custom graphics path.
+        /// </summary>
+        /// <param name="path">The path to draw.</param>
+        /// <param name="style">The stroke and fill style, or <see langword="null"/> for the default black outline.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Path(PdfGraphicsPath path, PdfPathStyle? style = null)
+        {
+            ArgumentNullException.ThrowIfNull(path);
+            _owner.AddPath(_pageIndex, path, style);
+            return this;
+        }
+
+        private static void ValidateFinite(float value, string parameterName)
+        {
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName, value, "Value must be a finite number.");
+            }
+        }
+
+        private static void ValidateRadius(float value, string parameterName)
+        {
+            if (!float.IsFinite(value) || value <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName, value, "Radius must be a positive finite number.");
+            }
+        }
+
         private static void ValidateOptions(string[] options)
         {
             ArgumentNullException.ThrowIfNull(options);

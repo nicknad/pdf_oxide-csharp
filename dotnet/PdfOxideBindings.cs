@@ -556,6 +556,110 @@ namespace PdfOxide
         internal static extern int pdf_builder_add_barcode(PdfBuilderState* state, int page_index, int barcode_type, byte* data, float x, float y, float width, float height);
 
         /// <summary>
+        ///  Add a stroked rectangle with the default 1pt black style.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_rect(PdfBuilderState* state, int page_index, float x, float y, float width, float height);
+
+        /// <summary>
+        ///  Add a filled rectangle.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_filled_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_filled_rect(PdfBuilderState* state, int page_index, float x, float y, float width, float height, float r, float g, float b);
+
+        /// <summary>
+        ///  Add a straight line with the default 1pt black style.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_line", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_line(PdfBuilderState* state, int page_index, float x1, float y1, float x2, float y2);
+
+        /// <summary>
+        ///  Add a stroked rectangle with a caller-supplied line style.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_stroke_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_stroke_rect(PdfBuilderState* state, int page_index, float x, float y, float width, float height, float line_width, float r, float g, float b, float* dash, int dash_len, float phase);
+
+        /// <summary>
+        ///  Add a stroked line with a caller-supplied line style.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_stroke_line", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_stroke_line(PdfBuilderState* state, int page_index, float x1, float y1, float x2, float y2, float line_width, float r, float g, float b, float* dash, int dash_len, float phase);
+
+        /// <summary>
+        ///  Add a circle with optional stroke and fill.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_circle", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_circle(PdfBuilderState* state, int page_index, float cx, float cy, float radius, int has_stroke, float line_width, float sr, float sg, float sb, float* dash, int dash_len, float phase, int has_fill, float fr, float fg, float fb);
+
+        /// <summary>
+        ///  Add an ellipse with optional stroke and fill.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_ellipse", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_ellipse(PdfBuilderState* state, int page_index, float cx, float cy, float rx, float ry, int has_stroke, float line_width, float sr, float sg, float sb, float* dash, int dash_len, float phase, int has_fill, float fr, float fg, float fb);
+
+        /// <summary>
+        ///  Add a polygon through a flat `(x, y)` coordinate array.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_polygon", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_polygon(PdfBuilderState* state, int page_index, float* coords, int point_count, int has_stroke, float line_width, float sr, float sg, float sb, float* dash, int dash_len, float phase, int has_fill, float fr, float fg, float fb);
+
+        /// <summary>
+        ///  Add a stroked circular arc. Angles are in radians.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_arc", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_arc(PdfBuilderState* state, int page_index, float cx, float cy, float radius, float start_radians, float end_radians, float line_width, float r, float g, float b, float* dash, int dash_len, float phase);
+
+        /// <summary>
+        ///  Add a cubic Bezier curve with optional stroke and fill.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_bezier", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_bezier(PdfBuilderState* state, int page_index, float x0, float y0, float c1x, float c1y, float c2x, float c2y, float x3, float y3, int has_stroke, float line_width, float sr, float sg, float sb, float* dash, int dash_len, float phase, int has_fill, float fr, float fg, float fb);
+
+        /// <summary>
+        ///  Add a generic path from operation kinds and a flat coordinate array.
+        ///
+        ///  Kinds: 0=MoveTo(2), 1=LineTo(2), 2=CurveTo(6), 3=Rectangle(4), 4=ClosePath(0).
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_path", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_path(PdfBuilderState* state, int page_index, int* kinds, float* coords, int op_count, int has_stroke, float line_width, float sr, float sg, float sb, float* dash, int dash_len, float phase, int has_fill, float fr, float fg, float fb);
+
+        /// <summary>
+        ///  Register an embedded font from a file path.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_register_font_file", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_register_font_file(PdfBuilderState* state, byte* name, byte* path);
+
+        /// <summary>
+        ///  Register an embedded font from memory.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_register_font_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_register_font_bytes(PdfBuilderState* state, byte* name, byte* data, int len);
+
+        /// <summary>
+        ///  Register the bundled DejaVu Sans fonts.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_register_bundled_fonts", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_register_bundled_fonts(PdfBuilderState* state);
+
+        /// <summary>
+        ///  Enable or disable PDF/UA-1 tagging.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_set_tagged_pdf_ua1", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_set_tagged_pdf_ua1(PdfBuilderState* state, int enabled);
+
+        /// <summary>
+        ///  Set the document language tag.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_set_language", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_set_language(PdfBuilderState* state, byte* lang);
+
+        /// <summary>
+        ///  Add a custom-to-standard role map entry.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_role_map", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_role_map(PdfBuilderState* state, byte* custom, byte* standard);
+
+        /// <summary>
         ///  Save the accumulated document to a file. The builder remains usable.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_save", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

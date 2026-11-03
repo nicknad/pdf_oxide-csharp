@@ -66,6 +66,126 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Registers an embedded font from a file.
+        /// </summary>
+        /// <param name="name">The name used to select the font in text styles.</param>
+        /// <param name="fontPath">Path to a TrueType or OpenType font file.</param>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> or <paramref name="fontPath"/> is empty.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the font file cannot be read or registered.</exception>
+        public DocumentBuilder RegisterFont(string name, string fontPath)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ArgumentException.ThrowIfNullOrEmpty(fontPath);
+            CheckDisposed();
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pPath = Utf8(fontPath))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_register_font_file(_state, pName, pPath));
+            }
+
+            return this;
+        }
+
+        /// <summary>
+        /// Registers an embedded font from memory.
+        /// </summary>
+        /// <param name="name">The name used to select the font in text styles.</param>
+        /// <param name="fontData">Raw TrueType or OpenType font bytes.</param>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or <paramref name="fontData"/> is empty.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the font cannot be registered.</exception>
+        public DocumentBuilder RegisterFont(string name, byte[] fontData)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ArgumentNullException.ThrowIfNull(fontData);
+            if (fontData.Length == 0)
+            {
+                throw new ArgumentException("Font data must not be empty.", nameof(fontData));
+            }
+            CheckDisposed();
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pData = fontData)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_register_font_bytes(
+                    _state, pName, pData, fontData.Length));
+            }
+
+            return this;
+        }
+
+        /// <summary>
+        /// Registers the bundled DejaVu Sans and DejaVu Sans Bold fonts.
+        /// </summary>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ObjectDisposedException">Thrown when the builder has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the fonts cannot be registered.</exception>
+        public DocumentBuilder RegisterBundledFonts()
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_register_bundled_fonts(_state));
+            return this;
+        }
+
+        /// <summary>
+        /// Enables or disables PDF/UA-1 tagging for the document.
+        /// </summary>
+        /// <param name="enabled">Whether to write the tagged PDF/UA-1 structure.</param>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ObjectDisposedException">Thrown when the builder has been disposed.</exception>
+        public DocumentBuilder SetTaggedPdfUa1(bool enabled = true)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_set_tagged_pdf_ua1(_state, enabled ? 1 : 0));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the document language tag, such as <c>en-US</c>.
+        /// </summary>
+        /// <param name="languageTag">The BCP 47 language tag.</param>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="languageTag"/> is empty.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the builder has been disposed.</exception>
+        public DocumentBuilder SetLanguage(string languageTag)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(languageTag);
+            CheckDisposed();
+
+            fixed (byte* pLanguage = Utf8(languageTag))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_set_language(_state, pLanguage));
+            }
+
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a custom-to-standard structure type role map entry.
+        /// </summary>
+        /// <param name="customType">The custom structure type name.</param>
+        /// <param name="standardType">The standard structure type it maps to.</param>
+        /// <returns>The current builder instance for method chaining.</returns>
+        /// <exception cref="ArgumentException">Thrown when either type name is empty.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the builder has been disposed.</exception>
+        public DocumentBuilder AddRoleMap(string customType, string standardType)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(customType);
+            ArgumentException.ThrowIfNullOrEmpty(standardType);
+            CheckDisposed();
+
+            fixed (byte* pCustom = Utf8(customType))
+            fixed (byte* pStandard = Utf8(standardType))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_role_map(_state, pCustom, pStandard));
+            }
+
+            return this;
+        }
+
+        /// <summary>
         /// Adds an A4 page and returns a builder for its content.
         /// </summary>
         /// <returns>A builder for the new page.</returns>
@@ -732,6 +852,282 @@ namespace PdfOxide
                 ThrowIfFailed(NativeMethods.pdf_builder_add_barcode(
                     _state, pageIndex, (int)type, pData,
                     rect.X, rect.Y, rect.Width, rect.Height));
+            }
+        }
+
+        internal void AddRect(int pageIndex, PdfRect rect)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_rect(
+                _state, pageIndex, rect.X, rect.Y, rect.Width, rect.Height));
+        }
+
+        internal void AddFilledRect(int pageIndex, PdfRect rect, PdfColor color)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_filled_rect(
+                _state, pageIndex,
+                rect.X, rect.Y, rect.Width, rect.Height,
+                color.R, color.G, color.B));
+        }
+
+        internal void AddLine(int pageIndex, float x1, float y1, float x2, float y2)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_line(
+                _state, pageIndex, x1, y1, x2, y2));
+        }
+
+        internal void AddStrokeRect(int pageIndex, PdfRect rect, PdfLineStyle style)
+        {
+            CheckDisposed();
+            ValidateLineStyle(style);
+
+            float[] dash = style.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_stroke_rect(
+                    _state, pageIndex,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    style.Width, style.Color.R, style.Color.G, style.Color.B,
+                    pDash, dash.Length, style.DashPhase));
+            }
+        }
+
+        internal void AddStrokeLine(
+            int pageIndex,
+            float x1,
+            float y1,
+            float x2,
+            float y2,
+            PdfLineStyle style)
+        {
+            CheckDisposed();
+            ValidateLineStyle(style);
+
+            float[] dash = style.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_stroke_line(
+                    _state, pageIndex, x1, y1, x2, y2,
+                    style.Width, style.Color.R, style.Color.G, style.Color.B,
+                    pDash, dash.Length, style.DashPhase));
+            }
+        }
+
+        internal void AddCircle(
+            int pageIndex,
+            float cx,
+            float cy,
+            float radius,
+            PdfLineStyle? stroke,
+            PdfColor? fill)
+        {
+            CheckDisposed();
+            if (stroke is not null)
+            {
+                ValidateLineStyle(stroke);
+            }
+
+            float[] dash = stroke?.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_circle(
+                    _state, pageIndex, cx, cy, radius,
+                    stroke is null ? 0 : 1,
+                    stroke?.Width ?? 0f,
+                    stroke?.Color.R ?? 0f,
+                    stroke?.Color.G ?? 0f,
+                    stroke?.Color.B ?? 0f,
+                    pDash, dash.Length, stroke?.DashPhase ?? 0f,
+                    fill.HasValue ? 1 : 0,
+                    fill?.R ?? 0f,
+                    fill?.G ?? 0f,
+                    fill?.B ?? 0f));
+            }
+        }
+
+        internal void AddEllipse(
+            int pageIndex,
+            float cx,
+            float cy,
+            float rx,
+            float ry,
+            PdfLineStyle? stroke,
+            PdfColor? fill)
+        {
+            CheckDisposed();
+            if (stroke is not null)
+            {
+                ValidateLineStyle(stroke);
+            }
+
+            float[] dash = stroke?.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_ellipse(
+                    _state, pageIndex, cx, cy, rx, ry,
+                    stroke is null ? 0 : 1,
+                    stroke?.Width ?? 0f,
+                    stroke?.Color.R ?? 0f,
+                    stroke?.Color.G ?? 0f,
+                    stroke?.Color.B ?? 0f,
+                    pDash, dash.Length, stroke?.DashPhase ?? 0f,
+                    fill.HasValue ? 1 : 0,
+                    fill?.R ?? 0f,
+                    fill?.G ?? 0f,
+                    fill?.B ?? 0f));
+            }
+        }
+
+        internal void AddPolygon(
+            int pageIndex,
+            PdfPoint[] points,
+            PdfLineStyle? stroke,
+            PdfColor? fill)
+        {
+            CheckDisposed();
+            if (stroke is not null)
+            {
+                ValidateLineStyle(stroke);
+            }
+
+            var coords = new float[points.Length * 2];
+            for (int index = 0; index < points.Length; index++)
+            {
+                coords[index * 2] = points[index].X;
+                coords[index * 2 + 1] = points[index].Y;
+            }
+
+            float[] dash = stroke?.DashPattern ?? [];
+            fixed (float* pCoords = coords)
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_polygon(
+                    _state, pageIndex, pCoords, points.Length,
+                    stroke is null ? 0 : 1,
+                    stroke?.Width ?? 0f,
+                    stroke?.Color.R ?? 0f,
+                    stroke?.Color.G ?? 0f,
+                    stroke?.Color.B ?? 0f,
+                    pDash, dash.Length, stroke?.DashPhase ?? 0f,
+                    fill.HasValue ? 1 : 0,
+                    fill?.R ?? 0f,
+                    fill?.G ?? 0f,
+                    fill?.B ?? 0f));
+            }
+        }
+
+        internal void AddArc(
+            int pageIndex,
+            float cx,
+            float cy,
+            float radius,
+            float startRadians,
+            float endRadians,
+            PdfLineStyle style)
+        {
+            CheckDisposed();
+            ValidateLineStyle(style);
+
+            float[] dash = style.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_arc(
+                    _state, pageIndex, cx, cy, radius,
+                    startRadians, endRadians,
+                    style.Width, style.Color.R, style.Color.G, style.Color.B,
+                    pDash, dash.Length, style.DashPhase));
+            }
+        }
+
+        internal void AddBezier(
+            int pageIndex,
+            float x0,
+            float y0,
+            float c1x,
+            float c1y,
+            float c2x,
+            float c2y,
+            float x3,
+            float y3,
+            PdfLineStyle? stroke,
+            PdfColor? fill)
+        {
+            CheckDisposed();
+            stroke ??= new PdfLineStyle();
+            ValidateLineStyle(stroke);
+
+            float[] dash = stroke.DashPattern ?? [];
+            fixed (float* pDash = dash)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_bezier(
+                    _state, pageIndex,
+                    x0, y0, c1x, c1y, c2x, c2y, x3, y3,
+                    1,
+                    stroke.Width, stroke.Color.R, stroke.Color.G, stroke.Color.B,
+                    pDash, dash.Length, stroke.DashPhase,
+                    fill.HasValue ? 1 : 0,
+                    fill?.R ?? 0f,
+                    fill?.G ?? 0f,
+                    fill?.B ?? 0f));
+            }
+        }
+
+        internal void AddPath(int pageIndex, PdfGraphicsPath path, PdfPathStyle? style)
+        {
+            CheckDisposed();
+            style ??= new PdfPathStyle();
+
+            int[] kinds = path.GetKinds();
+            float[] coords = path.GetCoordinates();
+            bool hasStroke = style.StrokeColor.HasValue;
+            if (hasStroke && (!float.IsFinite(style.StrokeWidth) || style.StrokeWidth <= 0f))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(style), style.StrokeWidth, "Stroke width must be a positive finite number.");
+            }
+
+            fixed (int* pKinds = kinds)
+            fixed (float* pCoords = coords)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_path(
+                    _state, pageIndex, pKinds, pCoords, kinds.Length,
+                    hasStroke ? 1 : 0,
+                    style.StrokeWidth,
+                    style.StrokeColor?.R ?? 0f,
+                    style.StrokeColor?.G ?? 0f,
+                    style.StrokeColor?.B ?? 0f,
+                    null, 0, 0f,
+                    style.FillColor.HasValue ? 1 : 0,
+                    style.FillColor?.R ?? 0f,
+                    style.FillColor?.G ?? 0f,
+                    style.FillColor?.B ?? 0f));
+            }
+        }
+
+        private static void ValidateLineStyle(PdfLineStyle style)
+        {
+            if (!float.IsFinite(style.Width) || style.Width <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(style), style.Width, "Line width must be a positive finite number.");
+            }
+            if (!float.IsFinite(style.DashPhase))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(style), style.DashPhase, "Dash phase must be finite.");
+            }
+            if (style.DashPattern is { } dash)
+            {
+                foreach (float value in dash)
+                {
+                    if (!float.IsFinite(value) || value < 0f)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(style), value, "Dash pattern values must be non-negative finite numbers.");
+                    }
+                }
             }
         }
 

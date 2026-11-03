@@ -27,15 +27,16 @@ use base64::Engine as _;
 use pdf_oxide::PdfDocument;
 use pdf_oxide::api::Pdf;
 use pdf_oxide::editor::DocumentEditor;
-use pdf_oxide::elements::PathContent;
+use pdf_oxide::elements::{ContentElement, PathContent, PathOperation};
 use pdf_oxide::extractors::{PageLabelExtractor, PdfImage, XmpExtractor};
+use pdf_oxide::fonts::bundled::{DEJAVU_SANS, DEJAVU_SANS_BOLD};
 use pdf_oxide::geometry::Rect;
 use pdf_oxide::layout::{Color, TextChar, TextLine, TextSpan, Word};
 use pdf_oxide::outline::{Destination, OutlineItem};
 use pdf_oxide::writer::{
-    DocumentBuilder as PdfWriterBuilder, FluentPageBuilder, LinkAnnotation, ListStyle, PageSize,
-    StampType, Table, TableCell, TableRow, TableStyle, TextAnnotation, TextMarkupAnnotation,
-    TextRun, TextRunStyle, WatermarkAnnotation,
+    DocumentBuilder as PdfWriterBuilder, EmbeddedFont, FluentPageBuilder, LineStyle, LinkAnnotation,
+    ListStyle, PageSize, StampType, Table, TableCell, TableRow, TableStyle, TextAnnotation,
+    TextMarkupAnnotation, TextRun, TextRunStyle, WatermarkAnnotation,
 };
 use pdf_oxide::{TextAnnotationIcon, TextMarkupType};
 use serde::Serialize;
@@ -297,6 +298,101 @@ enum BuilderOp {
         width: f32,
         height: f32,
     },
+    VecRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    VecFilledRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    VecLine {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
+    VecStrokeRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        width_style: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        dash: Vec<f32>,
+        phase: f32,
+    },
+    VecStrokeLine {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        width_style: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        dash: Vec<f32>,
+        phase: f32,
+    },
+    VecCircle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+        fill: Option<(f32, f32, f32)>,
+    },
+    VecEllipse {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+        stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+        fill: Option<(f32, f32, f32)>,
+    },
+    VecPolygon {
+        points: Vec<(f32, f32)>,
+        stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+        fill: Option<(f32, f32, f32)>,
+    },
+    VecArc {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        start_radians: f32,
+        end_radians: f32,
+        width_style: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        dash: Vec<f32>,
+        phase: f32,
+    },
+    VecBezier {
+        x0: f32,
+        y0: f32,
+        c1x: f32,
+        c1y: f32,
+        c2x: f32,
+        c2y: f32,
+        x3: f32,
+        y3: f32,
+        stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+        fill: Option<(f32, f32, f32)>,
+    },
+    VecPath {
+        operations: Vec<PathOperation>,
+        stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+        fill: Option<(f32, f32, f32)>,
+    },
 }
 
 struct PageSpec {
@@ -313,12 +409,21 @@ struct BuilderMetadata {
     creator: Option<String>,
 }
 
+struct BuilderFont {
+    name: String,
+    data: Vec<u8>,
+}
+
 /// State container for the DocumentBuilder API.
 /// Holds the document model accumulated across FFI calls; the PDF is rendered
 /// from the model on save/build so callers can add many elements per page.
 pub struct PdfBuilderState {
     pages: Vec<PageSpec>,
     metadata: BuilderMetadata,
+    fonts: Vec<BuilderFont>,
+    tagged: bool,
+    language: Option<String>,
+    role_map: Vec<(String, String)>,
 }
 
 impl PdfBuilderState {
@@ -351,6 +456,22 @@ impl PdfBuilderState {
         }
         if let Some(value) = &self.metadata.creator {
             document = document.creator(value);
+        }
+
+        if self.tagged {
+            document = document.tagged_pdf_ua1();
+        }
+        if let Some(lang) = &self.language {
+            document = document.language(lang.clone());
+        }
+        for (custom, standard) in &self.role_map {
+            document = document.role_map(custom.clone(), standard.clone());
+        }
+        for font in &self.fonts {
+            if let Ok(embedded) = EmbeddedFont::from_data(Some(font.name.clone()), font.data.clone())
+            {
+                document = document.register_embedded_font(font.name.clone(), embedded);
+            }
         }
 
         for page in &self.pages {
@@ -711,6 +832,145 @@ fn render_op<'a>(
                 *width,
                 *height,
             )?;
+        }
+        BuilderOp::VecRect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            page = page.rect(*x, *y, *width, *height);
+        }
+        BuilderOp::VecFilledRect {
+            x,
+            y,
+            width,
+            height,
+            r,
+            g,
+            b,
+        } => {
+            page = page.filled_rect(*x, *y, *width, *height, *r, *g, *b);
+        }
+        BuilderOp::VecLine { x1, y1, x2, y2 } => {
+            page = page.line(*x1, *y1, *x2, *y2);
+        }
+        BuilderOp::VecStrokeRect {
+            x,
+            y,
+            width,
+            height,
+            width_style,
+            r,
+            g,
+            b,
+            dash,
+            phase,
+        } => {
+            let style = make_line_style(*width_style, *r, *g, *b, dash, *phase)?;
+            page = page.stroke_rect(*x, *y, *width, *height, style);
+        }
+        BuilderOp::VecStrokeLine {
+            x1,
+            y1,
+            x2,
+            y2,
+            width_style,
+            r,
+            g,
+            b,
+            dash,
+            phase,
+        } => {
+            let style = make_line_style(*width_style, *r, *g, *b, dash, *phase)?;
+            page = page.stroke_line(*x1, *y1, *x2, *y2, style);
+        }
+        BuilderOp::VecCircle {
+            cx,
+            cy,
+            radius,
+            stroke,
+            fill,
+        } => {
+            let stroke = optional_line_style(stroke)?;
+            page = page.circle(*cx, *cy, *radius, stroke, *fill);
+        }
+        BuilderOp::VecEllipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            stroke,
+            fill,
+        } => {
+            let stroke = optional_line_style(stroke)?;
+            page = page.ellipse(*cx, *cy, *rx, *ry, stroke, *fill);
+        }
+        BuilderOp::VecPolygon {
+            points,
+            stroke,
+            fill,
+        } => {
+            let stroke = optional_line_style(stroke)?;
+            page = page.polygon(points, stroke, *fill);
+        }
+        BuilderOp::VecArc {
+            cx,
+            cy,
+            radius,
+            start_radians,
+            end_radians,
+            width_style,
+            r,
+            g,
+            b,
+            dash,
+            phase,
+        } => {
+            let style = make_line_style(*width_style, *r, *g, *b, dash, *phase)?;
+            page = page.arc(
+                *cx,
+                *cy,
+                *radius,
+                *start_radians,
+                *end_radians,
+                style,
+            );
+        }
+        BuilderOp::VecBezier {
+            x0,
+            y0,
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x3,
+            y3,
+            stroke,
+            fill,
+        } => {
+            let stroke = optional_line_style(stroke)?;
+            let stroke = stroke.unwrap_or_else(|| LineStyle::new(1.0, 0.0, 0.0, 0.0));
+            page = page.bezier_curve(
+                *x0, *y0, *c1x, *c1y, *c2x, *c2y, *x3, *y3, stroke, *fill,
+            );
+        }
+        BuilderOp::VecPath {
+            operations,
+            stroke,
+            fill,
+        } => {
+            let stroke = optional_line_style(stroke)?;
+            let mut path = PathContent::from_operations(operations.clone());
+            path.stroke_color = stroke.as_ref().map(|style| Color {
+                r: style.color.0,
+                g: style.color.1,
+                b: style.color.2,
+            });
+            path.stroke_width = stroke.as_ref().map(|style| style.width).unwrap_or(1.0);
+            path.dash_pattern = stroke.as_ref().and_then(|style| style.dash.clone());
+            path.fill_color = fill.map(|(r, g, b)| Color { r, g, b });
+            page = page.element(ContentElement::Path(path));
         }
     }
 
@@ -1954,6 +2214,54 @@ fn validate_color(
     Ok(())
 }
 
+fn make_line_style(
+    width: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    dash: &[f32],
+    phase: f32,
+) -> Result<LineStyle, Box<dyn std::error::Error>> {
+    if !width.is_finite() || width <= 0.0 {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "line width must be a positive finite number",
+        )
+        .into());
+    }
+    validate_color(r, g, b)?;
+    if !phase.is_finite() {
+        return Err(
+            IoError::new(ErrorKind::InvalidInput, "dash phase must be finite").into(),
+        );
+    }
+    if dash.iter().any(|value| !value.is_finite() || *value < 0.0) {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "dash pattern values must be non-negative finite numbers",
+        )
+        .into());
+    }
+
+    let style = LineStyle::new(width, r, g, b);
+    Ok(if dash.is_empty() {
+        style
+    } else {
+        style.with_dash(dash, phase)
+    })
+}
+
+fn optional_line_style(
+    stroke: &Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
+) -> Result<Option<LineStyle>, Box<dyn std::error::Error>> {
+    match stroke {
+        Some((width, r, g, b, dash, phase)) => {
+            Ok(Some(make_line_style(*width, *r, *g, *b, dash, *phase)?))
+        }
+        None => Ok(None),
+    }
+}
+
 fn list_style_from_code(style: i32) -> Result<ListStyle, Box<dyn std::error::Error>> {
     match style {
         0 => Ok(ListStyle::Decimal),
@@ -1979,6 +2287,10 @@ pub extern "C" fn pdf_builder_create() -> *mut PdfBuilderState {
     Box::into_raw(Box::new(PdfBuilderState {
         pages: Vec::new(),
         metadata: BuilderMetadata::default(),
+        fonts: Vec::new(),
+        tagged: false,
+        language: None,
+        role_map: Vec::new(),
     }))
 }
 
@@ -3210,6 +3522,778 @@ pub extern "C" fn pdf_builder_add_barcode(
             width,
             height,
         });
+        Ok(())
+    })
+}
+
+fn read_dash_pattern(
+    dash: *const f32,
+    dash_len: i32,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    if dash_len < 0 {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "dash length must not be negative",
+        )
+        .into());
+    }
+    if dash_len == 0 {
+        return Ok(Vec::new());
+    }
+    if dash.is_null() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "dash pointer must not be null when dash length is non-zero",
+        )
+        .into());
+    }
+    let values = unsafe { std::slice::from_raw_parts(dash, dash_len as usize) }.to_vec();
+    if values.iter().any(|value| !value.is_finite() || *value < 0.0) {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "dash pattern values must be non-negative finite numbers",
+        )
+        .into());
+    }
+    Ok(values)
+}
+
+fn read_float_array(
+    values: *const f32,
+    count: usize,
+    argument: &str,
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if values.is_null() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("{argument} pointer must not be null"),
+        )
+        .into());
+    }
+    let slice = unsafe { std::slice::from_raw_parts(values, count) };
+    if slice.iter().any(|value| !value.is_finite()) {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("{argument} values must be finite"),
+        )
+        .into());
+    }
+    Ok(slice.to_vec())
+}
+
+fn read_points(
+    coords: *const f32,
+    point_count: i32,
+) -> Result<Vec<(f32, f32)>, Box<dyn std::error::Error>> {
+    if point_count < 2 {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "polygon must contain at least two points",
+        )
+        .into());
+    }
+    let coord_count = (point_count as usize)
+        .checked_mul(2)
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidInput, "point count is too large"))?;
+    let values = read_float_array(coords, coord_count, "polygon coordinates")?;
+    Ok(values
+        .chunks_exact(2)
+        .map(|pair| (pair[0], pair[1]))
+        .collect())
+}
+
+fn read_path_operations(
+    kinds: *const i32,
+    coords: *const f32,
+    op_count: i32,
+) -> Result<Vec<PathOperation>, Box<dyn std::error::Error>> {
+    if op_count < 0 {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "path operation count must not be negative",
+        )
+        .into());
+    }
+    if op_count == 0 {
+        return Ok(Vec::new());
+    }
+    if kinds.is_null() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "path kinds pointer must not be null",
+        )
+        .into());
+    }
+
+    let kinds = unsafe { std::slice::from_raw_parts(kinds, op_count as usize) };
+    let mut required = 0usize;
+    for kind in kinds {
+        let add = match kind {
+            0 | 1 => 2,
+            2 => 6,
+            3 => 4,
+            4 => 0,
+            other => {
+                return Err(IoError::new(
+                    ErrorKind::InvalidInput,
+                    format!("unknown path operation kind: {other}"),
+                )
+                .into());
+            }
+        };
+        required = required
+            .checked_add(add)
+            .ok_or_else(|| IoError::new(ErrorKind::InvalidInput, "path is too large"))?;
+    }
+
+    let coords = read_float_array(coords, required, "path coordinates")?;
+    let mut operations = Vec::with_capacity(kinds.len());
+    let mut offset = 0usize;
+    for kind in kinds {
+        match kind {
+            0 => {
+                operations.push(PathOperation::MoveTo(coords[offset], coords[offset + 1]));
+                offset += 2;
+            }
+            1 => {
+                operations.push(PathOperation::LineTo(coords[offset], coords[offset + 1]));
+                offset += 2;
+            }
+            2 => {
+                operations.push(PathOperation::CurveTo(
+                    coords[offset],
+                    coords[offset + 1],
+                    coords[offset + 2],
+                    coords[offset + 3],
+                    coords[offset + 4],
+                    coords[offset + 5],
+                ));
+                offset += 6;
+            }
+            3 => {
+                operations.push(PathOperation::Rectangle(
+                    coords[offset],
+                    coords[offset + 1],
+                    coords[offset + 2],
+                    coords[offset + 3],
+                ));
+                offset += 4;
+            }
+            4 => operations.push(PathOperation::ClosePath),
+            _ => unreachable!(),
+        }
+    }
+
+    Ok(operations)
+}
+
+/// Add a stroked rectangle with the default 1pt black style.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_rect(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecRect {
+            x,
+            y,
+            width,
+            height,
+        });
+        Ok(())
+    })
+}
+
+/// Add a filled rectangle.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_filled_rect(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        validate_color(r, g, b)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecFilledRect {
+            x,
+            y,
+            width,
+            height,
+            r,
+            g,
+            b,
+        });
+        Ok(())
+    })
+}
+
+/// Add a straight line with the default 1pt black style.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_line(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "line coordinates must be finite").into(),
+            );
+        }
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::VecLine { x1, y1, x2, y2 });
+        Ok(())
+    })
+}
+
+/// Add a stroked rectangle with a caller-supplied line style.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_stroke_rect(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    line_width: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        let dash = read_dash_pattern(dash, dash_len)?;
+        make_line_style(line_width, r, g, b, &dash, phase)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::VecStrokeRect {
+                x,
+                y,
+                width,
+                height,
+                width_style: line_width,
+                r,
+                g,
+                b,
+                dash,
+                phase,
+            });
+        Ok(())
+    })
+}
+
+/// Add a stroked line with a caller-supplied line style.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_stroke_line(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    line_width: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "line coordinates must be finite").into(),
+            );
+        }
+        let dash = read_dash_pattern(dash, dash_len)?;
+        make_line_style(line_width, r, g, b, &dash, phase)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::VecStrokeLine {
+                x1,
+                y1,
+                x2,
+                y2,
+                width_style: line_width,
+                r,
+                g,
+                b,
+                dash,
+                phase,
+            });
+        Ok(())
+    })
+}
+
+/// Add a circle with optional stroke and fill.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_circle(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    has_stroke: i32,
+    line_width: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+    has_fill: i32,
+    fr: f32,
+    fg: f32,
+    fb: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !cx.is_finite() || !cy.is_finite() || !radius.is_finite() || radius <= 0.0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "circle radius must be positive and all values finite",
+            )
+            .into());
+        }
+        let dash = read_dash_pattern(dash, dash_len)?;
+        let stroke = if has_stroke != 0 {
+            make_line_style(line_width, sr, sg, sb, &dash, phase)?;
+            Some((line_width, sr, sg, sb, dash, phase))
+        } else {
+            None
+        };
+        let fill = if has_fill != 0 {
+            validate_color(fr, fg, fb)?;
+            Some((fr, fg, fb))
+        } else {
+            None
+        };
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecCircle {
+            cx,
+            cy,
+            radius,
+            stroke,
+            fill,
+        });
+        Ok(())
+    })
+}
+
+/// Add an ellipse with optional stroke and fill.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_ellipse(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    cx: f32,
+    cy: f32,
+    rx: f32,
+    ry: f32,
+    has_stroke: i32,
+    line_width: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+    has_fill: i32,
+    fr: f32,
+    fg: f32,
+    fb: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !cx.is_finite()
+            || !cy.is_finite()
+            || !rx.is_finite()
+            || !ry.is_finite()
+            || rx <= 0.0
+            || ry <= 0.0
+        {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "ellipse radii must be positive and all values finite",
+            )
+            .into());
+        }
+        let dash = read_dash_pattern(dash, dash_len)?;
+        let stroke = if has_stroke != 0 {
+            make_line_style(line_width, sr, sg, sb, &dash, phase)?;
+            Some((line_width, sr, sg, sb, dash, phase))
+        } else {
+            None
+        };
+        let fill = if has_fill != 0 {
+            validate_color(fr, fg, fb)?;
+            Some((fr, fg, fb))
+        } else {
+            None
+        };
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecEllipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            stroke,
+            fill,
+        });
+        Ok(())
+    })
+}
+
+/// Add a polygon through a flat `(x, y)` coordinate array.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_polygon(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    coords: *const f32,
+    point_count: i32,
+    has_stroke: i32,
+    line_width: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+    has_fill: i32,
+    fr: f32,
+    fg: f32,
+    fb: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let points = read_points(coords, point_count)?;
+        let dash = read_dash_pattern(dash, dash_len)?;
+        let stroke = if has_stroke != 0 {
+            make_line_style(line_width, sr, sg, sb, &dash, phase)?;
+            Some((line_width, sr, sg, sb, dash, phase))
+        } else {
+            None
+        };
+        let fill = if has_fill != 0 {
+            validate_color(fr, fg, fb)?;
+            Some((fr, fg, fb))
+        } else {
+            None
+        };
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecPolygon {
+            points,
+            stroke,
+            fill,
+        });
+        Ok(())
+    })
+}
+
+/// Add a stroked circular arc. Angles are in radians.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_arc(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    start_radians: f32,
+    end_radians: f32,
+    line_width: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !cx.is_finite()
+            || !cy.is_finite()
+            || !radius.is_finite()
+            || radius <= 0.0
+            || !start_radians.is_finite()
+            || !end_radians.is_finite()
+        {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "arc values must be finite and radius must be positive",
+            )
+            .into());
+        }
+        let dash = read_dash_pattern(dash, dash_len)?;
+        make_line_style(line_width, r, g, b, &dash, phase)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecArc {
+            cx,
+            cy,
+            radius,
+            start_radians,
+            end_radians,
+            width_style: line_width,
+            r,
+            g,
+            b,
+            dash,
+            phase,
+        });
+        Ok(())
+    })
+}
+
+/// Add a cubic Bezier curve with optional stroke and fill.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_bezier(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x0: f32,
+    y0: f32,
+    c1x: f32,
+    c1y: f32,
+    c2x: f32,
+    c2y: f32,
+    x3: f32,
+    y3: f32,
+    has_stroke: i32,
+    line_width: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+    has_fill: i32,
+    fr: f32,
+    fg: f32,
+    fb: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !x0.is_finite()
+            || !y0.is_finite()
+            || !c1x.is_finite()
+            || !c1y.is_finite()
+            || !c2x.is_finite()
+            || !c2y.is_finite()
+            || !x3.is_finite()
+            || !y3.is_finite()
+        {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "bezier coordinates must be finite").into(),
+            );
+        }
+        let dash = read_dash_pattern(dash, dash_len)?;
+        let stroke = if has_stroke != 0 {
+            make_line_style(line_width, sr, sg, sb, &dash, phase)?;
+            Some((line_width, sr, sg, sb, dash, phase))
+        } else {
+            None
+        };
+        let fill = if has_fill != 0 {
+            validate_color(fr, fg, fb)?;
+            Some((fr, fg, fb))
+        } else {
+            None
+        };
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecBezier {
+            x0,
+            y0,
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x3,
+            y3,
+            stroke,
+            fill,
+        });
+        Ok(())
+    })
+}
+
+/// Add a generic path from operation kinds and a flat coordinate array.
+///
+/// Kinds: 0=MoveTo(2), 1=LineTo(2), 2=CurveTo(6), 3=Rectangle(4), 4=ClosePath(0).
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_path(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    kinds: *const i32,
+    coords: *const f32,
+    op_count: i32,
+    has_stroke: i32,
+    line_width: f32,
+    sr: f32,
+    sg: f32,
+    sb: f32,
+    dash: *const f32,
+    dash_len: i32,
+    phase: f32,
+    has_fill: i32,
+    fr: f32,
+    fg: f32,
+    fb: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let operations = read_path_operations(kinds, coords, op_count)?;
+        let dash = read_dash_pattern(dash, dash_len)?;
+        let stroke = if has_stroke != 0 {
+            make_line_style(line_width, sr, sg, sb, &dash, phase)?;
+            Some((line_width, sr, sg, sb, dash, phase))
+        } else {
+            None
+        };
+        let fill = if has_fill != 0 {
+            validate_color(fr, fg, fb)?;
+            Some((fr, fg, fb))
+        } else {
+            None
+        };
+        state.page_mut(page_index)?.ops.push(BuilderOp::VecPath {
+            operations,
+            stroke,
+            fill,
+        });
+        Ok(())
+    })
+}
+
+/// Register an embedded font from a file path.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_register_font_file(
+    state: *mut PdfBuilderState,
+    name: *const c_char,
+    path: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        let path = c_string_to_string(path, "path")?;
+        require_non_empty(&path, "path")?;
+        let data = std::fs::read(&path)?;
+        if data.is_empty() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "font file must not be empty").into(),
+            );
+        }
+        state.fonts.push(BuilderFont { name, data });
+        Ok(())
+    })
+}
+
+/// Register an embedded font from memory.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_register_font_bytes(
+    state: *mut PdfBuilderState,
+    name: *const c_char,
+    data: *const u8,
+    len: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        if len <= 0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "font data must not be empty").into(),
+            );
+        }
+        if data.is_null() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "font data must not be null").into(),
+            );
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec();
+        state.fonts.push(BuilderFont { name, data: bytes });
+        Ok(())
+    })
+}
+
+/// Register the bundled DejaVu Sans fonts.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_register_bundled_fonts(state: *mut PdfBuilderState) -> i32 {
+    with_builder(state, |state| {
+        let fonts = [
+            ("DejaVuSans", DEJAVU_SANS),
+            ("DejaVuSans-Bold", DEJAVU_SANS_BOLD),
+        ];
+        for (name, data) in fonts {
+            if !state.fonts.iter().any(|font| font.name == name) {
+                state.fonts.push(BuilderFont {
+                    name: name.to_string(),
+                    data: data.to_vec(),
+                });
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Enable or disable PDF/UA-1 tagging.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_set_tagged_pdf_ua1(
+    state: *mut PdfBuilderState,
+    enabled: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        state.tagged = enabled != 0;
+        Ok(())
+    })
+}
+
+/// Set the document language tag.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_set_language(
+    state: *mut PdfBuilderState,
+    lang: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let lang = c_string_to_string(lang, "lang")?;
+        require_non_empty(&lang, "lang")?;
+        state.language = Some(lang);
+        Ok(())
+    })
+}
+
+/// Add a custom-to-standard role map entry.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_role_map(
+    state: *mut PdfBuilderState,
+    custom: *const c_char,
+    standard: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let custom = c_string_to_string(custom, "custom")?;
+        require_non_empty(&custom, "custom")?;
+        let standard = c_string_to_string(standard, "standard")?;
+        require_non_empty(&standard, "standard")?;
+        state.role_map.push((custom, standard));
         Ok(())
     })
 }
