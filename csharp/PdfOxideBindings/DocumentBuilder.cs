@@ -11,8 +11,10 @@ namespace PdfOxide
     /// <remarks>
     /// Add a page with <see cref="AddPage(PdfPageSize)"/>, write content through
     /// the returned <see cref="PdfPageBuilder"/>, then call <see cref="Save"/> or
-    /// <see cref="ToBytes"/>. Content is buffered in native code and rendered
-    /// when the document is saved, so the builder remains usable afterwards.
+    /// <see cref="ToBytes"/>. Content can be added to any page that has already
+    /// been added, in any order, before saving. Content is buffered in native
+    /// code and rendered when the document is saved, so the builder remains
+    /// usable afterwards.
     /// </remarks>
     public sealed unsafe class DocumentBuilder : IDisposable
     {
@@ -172,65 +174,55 @@ namespace PdfOxide
             }
         }
 
-        internal void EnsureActivePage(int pageIndex)
-        {
-            CheckDisposed();
-            if (pageIndex != _pageCount - 1)
-            {
-                throw new PdfOxideException(
-                    "Only the most recently added page can receive content. Finish each page before adding the next one.");
-            }
-        }
-
         internal void AddText(int pageIndex, string text, PdfTextStyle? style)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
             byte[]? font = style is null ? null : Utf8(style.Font);
 
             fixed (byte* pText = Utf8(text))
             fixed (byte* pFont = font)
             {
                 ThrowIfFailed(NativeMethods.pdf_builder_add_text(
-                    _state, pText, pFont, style?.Size ?? 0f));
+                    _state, pageIndex, pText, pFont, style?.Size ?? 0f));
             }
         }
 
         internal void AddTextAt(int pageIndex, float x, float y, string text, PdfTextStyle? style)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
             byte[]? font = style is null ? null : Utf8(style.Font);
 
             fixed (byte* pText = Utf8(text))
             fixed (byte* pFont = font)
             {
                 ThrowIfFailed(NativeMethods.pdf_builder_add_text_at(
-                    _state, x, y, pText, pFont, style?.Size ?? 0f));
+                    _state, pageIndex, x, y, pText, pFont, style?.Size ?? 0f));
             }
         }
 
         internal void AddHeading(int pageIndex, int level, string text)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             fixed (byte* pText = Utf8(text))
             {
-                ThrowIfFailed(NativeMethods.pdf_builder_add_heading(_state, level, pText));
+                ThrowIfFailed(NativeMethods.pdf_builder_add_heading(_state, pageIndex, level, pText));
             }
         }
 
         internal void AddParagraph(int pageIndex, string text)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             fixed (byte* pText = Utf8(text))
             {
-                ThrowIfFailed(NativeMethods.pdf_builder_add_paragraph(_state, pText));
+                ThrowIfFailed(NativeMethods.pdf_builder_add_paragraph(_state, pageIndex, pText));
             }
         }
 
         internal void AddList(int pageIndex, string[] items, bool numbered, PdfListStyle style)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             foreach (string item in items)
             {
@@ -243,24 +235,24 @@ namespace PdfOxide
             fixed (byte* pItems = Utf8(string.Join('\n', items)))
             {
                 ThrowIfFailed(NativeMethods.pdf_builder_add_list(
-                    _state, pItems, numbered ? 1 : 0, (int)style));
+                    _state, pageIndex, pItems, numbered ? 1 : 0, (int)style));
             }
         }
 
         internal void AddCodeBlock(int pageIndex, string language, string source)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             fixed (byte* pLanguage = Utf8(language))
             fixed (byte* pSource = Utf8(source))
             {
-                ThrowIfFailed(NativeMethods.pdf_builder_add_code_block(_state, pLanguage, pSource));
+                ThrowIfFailed(NativeMethods.pdf_builder_add_code_block(_state, pageIndex, pLanguage, pSource));
             }
         }
 
         internal void AddRichParagraph(int pageIndex, PdfTextRun[] runs)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
             if (runs.Length == 0)
             {
                 return;
@@ -295,7 +287,7 @@ namespace PdfOxide
                 fixed (float* pColors = colors)
                 {
                     ThrowIfFailed(NativeMethods.pdf_builder_add_rich_paragraph(
-                        _state, pTexts, pStyles, pColors, runs.Length));
+                        _state, pageIndex, pTexts, pStyles, pColors, runs.Length));
                 }
             }
             finally
@@ -312,29 +304,29 @@ namespace PdfOxide
 
         internal void AddSpace(int pageIndex, float points)
         {
-            EnsureActivePage(pageIndex);
-            ThrowIfFailed(NativeMethods.pdf_builder_add_space(_state, points));
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_space(_state, pageIndex, points));
         }
 
         internal void AddHorizontalRule(int pageIndex)
         {
-            EnsureActivePage(pageIndex);
-            ThrowIfFailed(NativeMethods.pdf_builder_add_horizontal_rule(_state));
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_horizontal_rule(_state, pageIndex));
         }
 
         internal void AddColumns(int pageIndex, int count, float gap, string text)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             fixed (byte* pText = Utf8(text))
             {
-                ThrowIfFailed(NativeMethods.pdf_builder_add_columns(_state, count, gap, pText));
+                ThrowIfFailed(NativeMethods.pdf_builder_add_columns(_state, pageIndex, count, gap, pText));
             }
         }
 
         internal void AddTable(int pageIndex, PdfTable table)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
 
             string[] cells = table.GetCells();
             var encoded = new byte[cells.Length][];
@@ -357,6 +349,7 @@ namespace PdfOxide
                 {
                     ThrowIfFailed(NativeMethods.pdf_builder_add_table(
                         _state,
+                        pageIndex,
                         pCells,
                         table.RowCount,
                         table.ColumnCount,
@@ -378,27 +371,27 @@ namespace PdfOxide
 
         internal void AddImage(int pageIndex, string path, PdfRect rect, string? altText)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
             byte[]? alt = Utf8OrNull(altText);
 
             fixed (byte* pPath = Utf8(path))
             fixed (byte* pAlt = alt)
             {
                 ThrowIfFailed(NativeMethods.pdf_builder_add_image_file(
-                    _state, pPath, rect.X, rect.Y, rect.Width, rect.Height, pAlt));
+                    _state, pageIndex, pPath, rect.X, rect.Y, rect.Width, rect.Height, pAlt));
             }
         }
 
         internal void AddImage(int pageIndex, byte[] imageData, PdfRect rect, string? altText)
         {
-            EnsureActivePage(pageIndex);
+            CheckDisposed();
             byte[]? alt = Utf8OrNull(altText);
 
             fixed (byte* pData = imageData)
             fixed (byte* pAlt = alt)
             {
                 ThrowIfFailed(NativeMethods.pdf_builder_add_image_bytes(
-                    _state, pData, imageData.Length, rect.X, rect.Y, rect.Width, rect.Height, pAlt));
+                    _state, pageIndex, pData, imageData.Length, rect.X, rect.Y, rect.Width, rect.Height, pAlt));
             }
         }
 

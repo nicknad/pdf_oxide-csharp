@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Default font used by the HTML+CSS pipeline (DejaVu Sans, permissive licence). -->
+    <EmbeddedResource Include="Fonts/DejaVuSans.ttf" LogicalName="PdfOxide.Fonts.DejaVuSans.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="README.md" />
 
     <!-- Ship each native binary as a RID-specific NuGet native asset. -->

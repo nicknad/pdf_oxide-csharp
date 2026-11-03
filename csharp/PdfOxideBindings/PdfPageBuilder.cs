@@ -6,9 +6,9 @@ namespace PdfOxide
     /// Adds content to a single page created by <see cref="DocumentBuilder"/>.
     /// </summary>
     /// <remarks>
-    /// Content can only be added to the most recently added page. Add all
-    /// content for a page before calling <see cref="DocumentBuilder.AddPage(PdfPageSize)"/>
-    /// again.
+    /// Content can be added to any page that has already been added, and pages
+    /// do not need to be completed before adding another page. Content may be
+    /// added in any order before saving the document.
     /// </remarks>
     public sealed class PdfPageBuilder
     {

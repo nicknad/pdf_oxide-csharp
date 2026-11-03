@@ -295,41 +295,47 @@ namespace PdfOxide
         internal static extern int pdf_builder_add_page(PdfBuilderState* state, int kind, float width, float height);
 
         /// <summary>
+        ///  Return the current number of pages in the builder, or -1 on error.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_get_page_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_get_page_count(PdfBuilderState* state);
+
+        /// <summary>
         ///  Add text at the current cursor position. A null font uses the default.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_text(PdfBuilderState* state, byte* text, byte* font, float size);
+        internal static extern int pdf_builder_add_text(PdfBuilderState* state, int page_index, byte* text, byte* font, float size);
 
         /// <summary>
         ///  Add text at an absolute position, in PDF points.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_text_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_text_at(PdfBuilderState* state, float x, float y, byte* text, byte* font, float size);
+        internal static extern int pdf_builder_add_text_at(PdfBuilderState* state, int page_index, float x, float y, byte* text, byte* font, float size);
 
         /// <summary>
         ///  Add a heading at the current cursor position. Levels are 1 through 6.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_heading", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_heading(PdfBuilderState* state, int level, byte* text);
+        internal static extern int pdf_builder_add_heading(PdfBuilderState* state, int page_index, int level, byte* text);
 
         /// <summary>
         ///  Add a wrapped paragraph at the current cursor position.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_paragraph", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_paragraph(PdfBuilderState* state, byte* text);
+        internal static extern int pdf_builder_add_paragraph(PdfBuilderState* state, int page_index, byte* text);
 
         /// <summary>
         ///  Add a bullet or numbered list. Items are newline-separated.
         ///  `numbered` is 0 for bullets; `style` is 0=decimal, 1=roman, 2=alpha.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_list", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_list(PdfBuilderState* state, byte* items, int numbered, int style);
+        internal static extern int pdf_builder_add_list(PdfBuilderState* state, int page_index, byte* items, int numbered, int style);
 
         /// <summary>
         ///  Add a monospace code block at the current cursor position.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_code_block", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_code_block(PdfBuilderState* state, byte* language, byte* source);
+        internal static extern int pdf_builder_add_code_block(PdfBuilderState* state, int page_index, byte* language, byte* source);
 
         /// <summary>
         ///  Add a paragraph made of styled text runs.
@@ -338,25 +344,25 @@ namespace PdfOxide
         ///  RGB array (3 floats per run) and must be provided when any run is colored.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_rich_paragraph", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_rich_paragraph(PdfBuilderState* state, byte** texts, int* styles, float* colors, int len);
+        internal static extern int pdf_builder_add_rich_paragraph(PdfBuilderState* state, int page_index, byte** texts, int* styles, float* colors, int len);
 
         /// <summary>
         ///  Add vertical space at the current cursor position.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_space", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_space(PdfBuilderState* state, float points);
+        internal static extern int pdf_builder_add_space(PdfBuilderState* state, int page_index, float points);
 
         /// <summary>
         ///  Add a horizontal rule at the current cursor position.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_horizontal_rule", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_horizontal_rule(PdfBuilderState* state);
+        internal static extern int pdf_builder_add_horizontal_rule(PdfBuilderState* state, int page_index);
 
         /// <summary>
         ///  Lay text out across multiple balanced columns.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_columns", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_columns(PdfBuilderState* state, int count, float gap, byte* text);
+        internal static extern int pdf_builder_add_columns(PdfBuilderState* state, int page_index, int count, float gap, byte* text);
 
         /// <summary>
         ///  Add a table with `rows` x `cols` plain-text cells in row-major order.
@@ -364,19 +370,19 @@ namespace PdfOxide
         ///  1=bordered, 2=minimal.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_table", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_table(PdfBuilderState* state, byte** cells, int rows, int cols, int header, int style);
+        internal static extern int pdf_builder_add_table(PdfBuilderState* state, int page_index, byte** cells, int rows, int cols, int header, int style);
 
         /// <summary>
         ///  Add an image file at a rectangle. `alt` may be null.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_image_file", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_image_file(PdfBuilderState* state, byte* path, float x, float y, float width, float height, byte* alt);
+        internal static extern int pdf_builder_add_image_file(PdfBuilderState* state, int page_index, byte* path, float x, float y, float width, float height, byte* alt);
 
         /// <summary>
         ///  Add an in-memory image (PNG or JPEG) at a rectangle. `alt` may be null.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_image_bytes", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern int pdf_builder_add_image_bytes(PdfBuilderState* state, byte* data, int len, float x, float y, float width, float height, byte* alt);
+        internal static extern int pdf_builder_add_image_bytes(PdfBuilderState* state, int page_index, byte* data, int len, float x, float y, float width, float height, byte* alt);
 
         /// <summary>
         ///  Save the accumulated document to a file. The builder remains usable.

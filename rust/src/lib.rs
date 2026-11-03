@@ -26,6 +26,7 @@
 use base64::Engine as _;
 use pdf_oxide::PdfDocument;
 use pdf_oxide::api::Pdf;
+use pdf_oxide::editor::DocumentEditor;
 use pdf_oxide::elements::PathContent;
 use pdf_oxide::extractors::{PageLabelExtractor, PdfImage, XmpExtractor};
 use pdf_oxide::geometry::Rect;
@@ -177,9 +178,16 @@ pub struct PdfBuilderState {
 }
 
 impl PdfBuilderState {
-    fn current_page_mut(&mut self) -> Result<&mut PageSpec, Box<dyn std::error::Error>> {
-        self.pages.last_mut().ok_or_else(|| {
-            IoError::new(ErrorKind::InvalidInput, "add a page before adding content").into()
+    fn page_mut(
+        &mut self,
+        page_index: usize,
+    ) -> Result<&mut PageSpec, Box<dyn std::error::Error>> {
+        self.pages.get_mut(page_index).ok_or_else(|| {
+            IoError::new(
+                ErrorKind::InvalidInput,
+                format!("page index {page_index} is out of range"),
+            )
+            .into()
         })
     }
 
@@ -1381,6 +1389,16 @@ fn builder_mut<'a>(
     Ok(unsafe { &mut *state })
 }
 
+fn page_index_from_i32(page_index: i32) -> Result<usize, Box<dyn std::error::Error>> {
+    usize::try_from(page_index).map_err(|_| {
+        IoError::new(
+            ErrorKind::InvalidInput,
+            format!("page index {page_index} must not be negative"),
+        )
+        .into()
+    })
+}
+
 fn with_builder<F>(state: *mut PdfBuilderState, action: F) -> i32
 where
     F: FnOnce(&mut PdfBuilderState) -> Result<(), Box<dyn std::error::Error>>,
@@ -1530,19 +1548,39 @@ pub extern "C" fn pdf_builder_add_page(
     })
 }
 
+/// Return the current number of pages in the builder, or -1 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_get_page_count(state: *mut PdfBuilderState) -> i32 {
+    match builder_mut(state) {
+        Ok(state) => match i32::try_from(state.pages.len()) {
+            Ok(count) => count,
+            Err(_) => {
+                set_last_error("page count exceeds the supported range");
+                -1
+            }
+        },
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
+    }
+}
+
 /// Add text at the current cursor position. A null font uses the default.
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_text(
     state: *mut PdfBuilderState,
+    page_index: i32,
     text: *const c_char,
     font: *const c_char,
     size: f32,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         let text = c_string_to_string(text, "text")?;
         let font = optional_string(font, "font")?;
         let size = (size.is_finite() && size > 0.0).then_some(size);
-        state.current_page_mut()?.ops.push(BuilderOp::Text {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Text {
             x: None,
             y: None,
             text,
@@ -1557,6 +1595,7 @@ pub extern "C" fn pdf_builder_add_text(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_text_at(
     state: *mut PdfBuilderState,
+    page_index: i32,
     x: f32,
     y: f32,
     text: *const c_char,
@@ -1564,6 +1603,7 @@ pub extern "C" fn pdf_builder_add_text_at(
     size: f32,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if !x.is_finite() || !y.is_finite() {
             return Err(
                 IoError::new(ErrorKind::InvalidInput, "text position must be finite").into(),
@@ -1572,7 +1612,7 @@ pub extern "C" fn pdf_builder_add_text_at(
         let text = c_string_to_string(text, "text")?;
         let font = optional_string(font, "font")?;
         let size = (size.is_finite() && size > 0.0).then_some(size);
-        state.current_page_mut()?.ops.push(BuilderOp::Text {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Text {
             x: Some(x),
             y: Some(y),
             text,
@@ -1587,10 +1627,12 @@ pub extern "C" fn pdf_builder_add_text_at(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_heading(
     state: *mut PdfBuilderState,
+    page_index: i32,
     level: i32,
     text: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if !(1..=6).contains(&level) {
             return Err(IoError::new(
                 ErrorKind::InvalidInput,
@@ -1599,7 +1641,7 @@ pub extern "C" fn pdf_builder_add_heading(
             .into());
         }
         let text = c_string_to_string(text, "text")?;
-        state.current_page_mut()?.ops.push(BuilderOp::Heading {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Heading {
             level: level as u8,
             text,
         });
@@ -1611,12 +1653,14 @@ pub extern "C" fn pdf_builder_add_heading(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_paragraph(
     state: *mut PdfBuilderState,
+    page_index: i32,
     text: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         let text = c_string_to_string(text, "text")?;
         state
-            .current_page_mut()?
+            .page_mut(page_index)?
             .ops
             .push(BuilderOp::Paragraph(text));
         Ok(())
@@ -1628,11 +1672,13 @@ pub extern "C" fn pdf_builder_add_paragraph(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_list(
     state: *mut PdfBuilderState,
+    page_index: i32,
     items: *const c_char,
     numbered: i32,
     style: i32,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         let text = c_string_to_string(items, "items")?;
         let values: Vec<String> = text.lines().map(str::to_owned).collect();
         if values.is_empty() {
@@ -1651,7 +1697,7 @@ pub extern "C" fn pdf_builder_add_list(
                 style: list_style_from_code(style)?,
             }
         };
-        state.current_page_mut()?.ops.push(op);
+        state.page_mut(page_index)?.ops.push(op);
         Ok(())
     })
 }
@@ -1660,14 +1706,16 @@ pub extern "C" fn pdf_builder_add_list(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_code_block(
     state: *mut PdfBuilderState,
+    page_index: i32,
     language: *const c_char,
     source: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         let language = c_string_to_string(language, "language")?;
         let source = c_string_to_string(source, "source")?;
         state
-            .current_page_mut()?
+            .page_mut(page_index)?
             .ops
             .push(BuilderOp::CodeBlock { language, source });
         Ok(())
@@ -1681,12 +1729,14 @@ pub extern "C" fn pdf_builder_add_code_block(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdf_builder_add_rich_paragraph(
     state: *mut PdfBuilderState,
+    page_index: i32,
     texts: *const *const c_char,
     styles: *const i32,
     colors: *const f32,
     len: i32,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if len < 0 {
             return Err(IoError::new(
                 ErrorKind::InvalidInput,
@@ -1737,7 +1787,7 @@ pub unsafe extern "C" fn pdf_builder_add_rich_paragraph(
         }
 
         state
-            .current_page_mut()?
+            .page_mut(page_index)?
             .ops
             .push(BuilderOp::RichParagraph(runs));
         Ok(())
@@ -1746,8 +1796,13 @@ pub unsafe extern "C" fn pdf_builder_add_rich_paragraph(
 
 /// Add vertical space at the current cursor position.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdf_builder_add_space(state: *mut PdfBuilderState, points: f32) -> i32 {
+pub extern "C" fn pdf_builder_add_space(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    points: f32,
+) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if !points.is_finite() || points < 0.0 {
             return Err(IoError::new(
                 ErrorKind::InvalidInput,
@@ -1755,17 +1810,21 @@ pub extern "C" fn pdf_builder_add_space(state: *mut PdfBuilderState, points: f32
             )
             .into());
         }
-        state.current_page_mut()?.ops.push(BuilderOp::Space(points));
+        state.page_mut(page_index)?.ops.push(BuilderOp::Space(points));
         Ok(())
     })
 }
 
 /// Add a horizontal rule at the current cursor position.
 #[unsafe(no_mangle)]
-pub extern "C" fn pdf_builder_add_horizontal_rule(state: *mut PdfBuilderState) -> i32 {
+pub extern "C" fn pdf_builder_add_horizontal_rule(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         state
-            .current_page_mut()?
+            .page_mut(page_index)?
             .ops
             .push(BuilderOp::HorizontalRule);
         Ok(())
@@ -1776,11 +1835,13 @@ pub extern "C" fn pdf_builder_add_horizontal_rule(state: *mut PdfBuilderState) -
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_columns(
     state: *mut PdfBuilderState,
+    page_index: i32,
     count: i32,
     gap: f32,
     text: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if count <= 0 {
             return Err(
                 IoError::new(ErrorKind::InvalidInput, "column count must be positive").into(),
@@ -1792,7 +1853,7 @@ pub extern "C" fn pdf_builder_add_columns(
             );
         }
         let text = c_string_to_string(text, "text")?;
-        state.current_page_mut()?.ops.push(BuilderOp::Columns {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Columns {
             count: count as u32,
             gap,
             text,
@@ -1807,6 +1868,7 @@ pub extern "C" fn pdf_builder_add_columns(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdf_builder_add_table(
     state: *mut PdfBuilderState,
+    page_index: i32,
     cells: *const *const c_char,
     rows: i32,
     cols: i32,
@@ -1814,6 +1876,7 @@ pub unsafe extern "C" fn pdf_builder_add_table(
     style: i32,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         if rows <= 0 || cols <= 0 {
             return Err(
                 IoError::new(ErrorKind::InvalidInput, "table dimensions must be positive").into(),
@@ -1846,7 +1909,7 @@ pub unsafe extern "C" fn pdf_builder_add_table(
             table_rows.push(row);
         }
 
-        state.current_page_mut()?.ops.push(BuilderOp::Table {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Table {
             rows: table_rows,
             header: header != 0,
             style,
@@ -1859,6 +1922,7 @@ pub unsafe extern "C" fn pdf_builder_add_table(
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_builder_add_image_file(
     state: *mut PdfBuilderState,
+    page_index: i32,
     path: *const c_char,
     x: f32,
     y: f32,
@@ -1867,11 +1931,12 @@ pub extern "C" fn pdf_builder_add_image_file(
     alt: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         validate_rect(x, y, width, height)?;
         let path = c_string_to_string(path, "path")?;
         let data = std::fs::read(&path)?;
         let alt = optional_string(alt, "alt")?;
-        state.current_page_mut()?.ops.push(BuilderOp::Image {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Image {
             data,
             x,
             y,
@@ -1887,6 +1952,7 @@ pub extern "C" fn pdf_builder_add_image_file(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdf_builder_add_image_bytes(
     state: *mut PdfBuilderState,
+    page_index: i32,
     data: *const u8,
     len: i32,
     x: f32,
@@ -1896,6 +1962,7 @@ pub unsafe extern "C" fn pdf_builder_add_image_bytes(
     alt: *const c_char,
 ) -> i32 {
     with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
         validate_rect(x, y, width, height)?;
         if len <= 0 {
             return Err(
@@ -1909,7 +1976,7 @@ pub unsafe extern "C" fn pdf_builder_add_image_bytes(
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec();
         let alt = optional_string(alt, "alt")?;
-        state.current_page_mut()?.ops.push(BuilderOp::Image {
+        state.page_mut(page_index)?.ops.push(BuilderOp::Image {
             data: bytes,
             x,
             y,
@@ -1991,6 +2058,85 @@ pub unsafe extern "C" fn pdf_bytes_free(data: *mut u8, len: i32) {
         return;
     }
     drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(data, len as usize)) });
+}
+
+// ============================================================================
+// DOCUMENT EDITOR PASSWORD SHIMS
+// ============================================================================
+
+fn editor_open_with_password_internal(
+    path: *const c_char,
+    password: *const c_char,
+) -> Result<DocumentEditor, Box<dyn std::error::Error>> {
+    let path_str = c_string_to_string(path, "path")?;
+    let password_str = c_string_to_string(password, "password")?;
+    let doc = PdfDocument::open(&path_str)?;
+    if !doc.authenticate(password_str.as_bytes())? {
+        return Err(IoError::new(ErrorKind::InvalidInput, "password authentication failed").into());
+    }
+    Ok(DocumentEditor::from_document(doc)?)
+}
+
+fn editor_open_from_bytes_with_password_internal(
+    data: *const u8,
+    len: usize,
+    password: *const c_char,
+) -> Result<DocumentEditor, Box<dyn std::error::Error>> {
+    if data.is_null() || len == 0 {
+        return Err(IoError::new(ErrorKind::InvalidInput, "data must not be null or empty").into());
+    }
+    let password_str = c_string_to_string(password, "password")?;
+    let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+    let doc = PdfDocument::from_bytes(bytes)?;
+    if !doc.authenticate(password_str.as_bytes())? {
+        return Err(IoError::new(ErrorKind::InvalidInput, "password authentication failed").into());
+    }
+    Ok(DocumentEditor::from_document(doc)?)
+}
+
+fn editor_handle_result(
+    result: Result<DocumentEditor, Box<dyn std::error::Error>>,
+    error_code: *mut i32,
+) -> *mut std::ffi::c_void {
+    match result {
+        Ok(editor) => {
+            if !error_code.is_null() {
+                unsafe { *error_code = 0; }
+            }
+            Box::into_raw(Box::new(editor)) as *mut std::ffi::c_void
+        }
+        Err(e) => {
+            set_last_error(&e);
+            if !error_code.is_null() {
+                unsafe { *error_code = -1; }
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Open a password-protected PDF for editing.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfoxide_editor_open_with_password(
+    path: *const c_char,
+    password: *const c_char,
+    error_code: *mut i32,
+) -> *mut std::ffi::c_void {
+    editor_handle_result(editor_open_with_password_internal(path, password), error_code)
+}
+
+/// Open a password-protected PDF from memory for editing.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfoxide_editor_open_from_bytes_with_password(
+    data: *const u8,
+    len: usize,
+    password: *const c_char,
+    error_code: *mut i32,
+) -> *mut std::ffi::c_void {
+    editor_handle_result(
+        editor_open_from_bytes_with_password_internal(data, len, password),
+        error_code,
+    )
 }
 
 // ============================================================================

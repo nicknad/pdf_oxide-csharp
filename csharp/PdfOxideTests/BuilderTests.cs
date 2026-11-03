@@ -150,13 +150,64 @@ namespace PdfOxideTests
         }
 
         [Fact]
-        public void RejectsContentForNonCurrentPage()
+        public void AllowsContentForAnyPreviouslyAddedPage()
         {
-            using var builder = new DocumentBuilder();
-            PdfPageBuilder firstPage = builder.AddPage();
-            _ = builder.AddPage();
+            string path = TemporaryPath();
 
-            Assert.Throws<PdfOxideException>(() => firstPage.Paragraph("late content"));
+            try
+            {
+                using (var builder = new DocumentBuilder())
+                {
+                    PdfPageBuilder firstPage = builder.AddPage();
+                    PdfPageBuilder secondPage = builder.AddPage();
+
+                    secondPage.Paragraph("second page content");
+                    firstPage.Paragraph("first page content");
+
+                    builder.Save(path);
+                }
+
+                var document = new PdfDocument(path);
+                Assert.Equal(2, document.GetPageCount());
+                Assert.Contains("first page content", document.ExtractText(0), StringComparison.Ordinal);
+                Assert.Contains("second page content", document.ExtractText(1), StringComparison.Ordinal);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        [Fact]
+        public void AllowsInterleavedContentAcrossPages()
+        {
+            string path = TemporaryPath();
+
+            try
+            {
+                using (var builder = new DocumentBuilder())
+                {
+                    PdfPageBuilder firstPage = builder.AddPage();
+                    PdfPageBuilder secondPage = builder.AddPage();
+                    PdfPageBuilder thirdPage = builder.AddPage();
+
+                    thirdPage.Paragraph("third page content");
+                    firstPage.Paragraph("first page content");
+                    secondPage.Paragraph("second page content");
+
+                    builder.Save(path);
+                }
+
+                var document = new PdfDocument(path);
+                Assert.Equal(3, document.GetPageCount());
+                Assert.Contains("first page content", document.ExtractText(0), StringComparison.Ordinal);
+                Assert.Contains("second page content", document.ExtractText(1), StringComparison.Ordinal);
+                Assert.Contains("third page content", document.ExtractText(2), StringComparison.Ordinal);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
         }
 
         private static string TemporaryPath(string extension = "pdf")
