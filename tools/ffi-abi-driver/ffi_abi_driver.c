@@ -48,6 +48,7 @@ static void make_temp_path(char* buffer, size_t size)
 }
 #else
 #include <dlfcn.h>
+#include <pthread.h>
 #include <unistd.h>
 typedef void* library_handle;
 
@@ -92,6 +93,51 @@ typedef struct {
     last_error_fn last_error;
     string_free_fn string_free;
 } api;
+
+typedef struct {
+    const api* ffi;
+    const char* path;
+    long failures;
+} worker_context;
+
+static void worker_body(worker_context* context)
+{
+    for (int index = 0; index < 20; index++) {
+        if (context->ffi->get_page_count(context->path) < 1) {
+#if defined(_WIN32)
+            InterlockedIncrement((volatile LONG*)&context->failures);
+#else
+            __atomic_fetch_add(&context->failures, 1, __ATOMIC_SEQ_CST);
+#endif
+            return;
+        }
+
+        char* text = context->ffi->extract_text(context->path);
+        if (text == NULL) {
+#if defined(_WIN32)
+            InterlockedIncrement((volatile LONG*)&context->failures);
+#else
+            __atomic_fetch_add(&context->failures, 1, __ATOMIC_SEQ_CST);
+#endif
+            return;
+        }
+        context->ffi->string_free(text);
+    }
+}
+
+#if defined(_WIN32)
+static DWORD WINAPI worker_entry(LPVOID parameter)
+{
+    worker_body((worker_context*)parameter);
+    return 0;
+}
+#else
+static void* worker_entry(void* parameter)
+{
+    worker_body((worker_context*)parameter);
+    return NULL;
+}
+#endif
 
 static const char* REQUIRED_SYMBOLS[] = {
     "pdf_extract_text",
@@ -219,6 +265,69 @@ static int scenario_smoke(library_handle library)
     return 0;
 }
 
+static int scenario_threads(library_handle library)
+{
+    enum { THREAD_COUNT = 4 };
+    api ffi;
+    char path[1024];
+    worker_context context;
+
+    if (!resolve_api(library, &ffi)) {
+        return 2;
+    }
+
+    make_temp_path(path, sizeof(path));
+    if (ffi.from_text("threads scenario", path) != 0) {
+        report_error(&ffi);
+        remove(path);
+        return 1;
+    }
+
+    context.ffi = &ffi;
+    context.path = path;
+    context.failures = 0;
+
+#if defined(_WIN32)
+    HANDLE threads[THREAD_COUNT] = {0};
+    for (int index = 0; index < THREAD_COUNT; index++) {
+        threads[index] = CreateThread(NULL, 0, worker_entry, &context, 0, NULL);
+        if (threads[index] == NULL) {
+            context.failures++;
+        }
+    }
+    for (int index = 0; index < THREAD_COUNT; index++) {
+        if (threads[index] != NULL) {
+            WaitForSingleObject(threads[index], 30000);
+            CloseHandle(threads[index]);
+        }
+    }
+#else
+    pthread_t threads[THREAD_COUNT];
+    int created[THREAD_COUNT] = {0};
+    for (int index = 0; index < THREAD_COUNT; index++) {
+        if (pthread_create(&threads[index], NULL, worker_entry, &context) == 0) {
+            created[index] = 1;
+        } else {
+            __atomic_fetch_add(&context.failures, 1, __ATOMIC_SEQ_CST);
+        }
+    }
+    for (int index = 0; index < THREAD_COUNT; index++) {
+        if (created[index]) {
+            pthread_join(threads[index], NULL);
+        }
+    }
+#endif
+
+    remove(path);
+    if (context.failures != 0) {
+        fprintf(stderr, "thread failures: %ld\n", context.failures);
+        return 1;
+    }
+
+    printf("%d threads completed\n", THREAD_COUNT);
+    return 0;
+}
+
 static int scenario_null_path(library_handle library)
 {
     api ffi;
@@ -253,7 +362,7 @@ int main(int argc, char** argv)
     int result;
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <library-path> <symbols|smoke|null-path>\n", argv[0]);
+        fprintf(stderr, "usage: %s <library-path> <symbols|smoke|null-path|threads>\n", argv[0]);
         return 2;
     }
 
@@ -271,6 +380,8 @@ int main(int argc, char** argv)
         result = scenario_smoke(library);
     } else if (strcmp(scenario, "null-path") == 0) {
         result = scenario_null_path(library);
+    } else if (strcmp(scenario, "threads") == 0) {
+        result = scenario_threads(library);
     } else {
         fprintf(stderr, "unknown scenario: %s\n", scenario);
         result = 2;

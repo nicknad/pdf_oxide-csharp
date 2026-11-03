@@ -44,8 +44,12 @@ Scenarios:
 - `smoke` - create a PDF from text, extract text, convert to Markdown, free every
   returned string.
 - `null-path` - a NULL path returns NULL with a retrievable error message.
+- `threads` - four threads read/extract from the same file and free their own
+  strings; used by the ASAN and TSan jobs.
 
 ## Sanitizers
 
 Build the driver with `-fsanitize=address` and load a cdylib built with
-`RUSTFLAGS="-Zsanitizer=address"`. See `.github/workflows/sanitizers.yml`.
+`RUSTFLAGS="-Zsanitizer=address"`. For races, use `-fsanitize=thread` with a
+cdylib built with `RUSTFLAGS="-Zsanitizer=thread"` and run the `threads` scenario.
+See `.github/workflows/sanitizers.yml`.

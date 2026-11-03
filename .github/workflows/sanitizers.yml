@@ -36,7 +36,7 @@ jobs:
 
       - name: Build ABI driver with ASAN
         run: >
-          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address -pthread
           tools/ffi-abi-driver/ffi_abi_driver.c -o ffi_abi_driver -ldl
 
       - name: Run symbols scenario
@@ -53,3 +53,107 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
         run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so null-path
+
+      - name: Run threads scenario
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so threads
+
+  tsan:
+    name: TSan ABI driver
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build ThreadSanitizer native library
+        env:
+          RUSTFLAGS: "-Zsanitizer=thread"
+          CARGO_TARGET_DIR: rust/target/tsan
+        run: cargo +nightly build --manifest-path rust/Cargo.toml
+
+      - name: Build ABI driver with TSan
+        run: >
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=thread -pthread
+          tools/ffi-abi-driver/ffi_abi_driver.c -o ffi_abi_driver_tsan -ldl
+
+      - name: Run threads scenario
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: ./ffi_abi_driver_tsan rust/target/tsan/debug/libpdfoxide_bindings.so threads
+
+  pageheap:
+    name: Windows PageHeap crash host
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build native library
+        run: cargo build --release --locked --manifest-path rust/Cargo.toml
+
+      - name: Copy native library into runtimes
+        shell: pwsh
+        run: Copy-Item rust/target/release/pdfoxide_bindings.dll runtimes/win-x64/native/pdfoxide_bindings.dll -Force
+
+      - name: Publish crash host apphost
+        run: >
+          dotnet publish csharp/FfiCrashHost/FfiCrashHost.csproj
+          --configuration Release --runtime win-x64 --self-contained false
+          -p:UseAppHost=true -o publish
+
+      - name: Copy native library next to the host
+        shell: pwsh
+        run: Copy-Item runtimes/win-x64/native/pdfoxide_bindings.dll publish/pdfoxide_bindings.dll -Force
+
+      - name: Enable PageHeap
+        shell: pwsh
+        run: |
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $gflags) { throw 'gflags.exe not found; PageHeap is unavailable on this runner.' }
+          & $gflags.FullName /p /enable "$PWD\publish\FfiCrashHost.exe" /full
+
+      - name: Run safe scenarios under PageHeap
+        shell: pwsh
+        run: |
+          $exe = "$PWD\publish\FfiCrashHost.exe"
+          $scenarios = @(
+            'noop',
+            'null-path-extract',
+            'reuse-after-save',
+            'builder-extension-validation',
+            'streaming-state-machine',
+            'editor-error-code-contract',
+            'editor-page-edit-extremes'
+          )
+          foreach ($scenario in $scenarios) {
+            & $exe $scenario
+            if ($LASTEXITCODE -ne 0) { throw "scenario failed: $scenario ($LASTEXITCODE)" }
+          }
+
+      - name: Disable PageHeap
+        if: always()
+        shell: pwsh
+        run: |
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($gflags) {
+            & $gflags.FullName /p /disable "$PWD\publish\FfiCrashHost.exe"
+          }

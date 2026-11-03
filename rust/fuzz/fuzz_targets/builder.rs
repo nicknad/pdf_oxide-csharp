@@ -7,12 +7,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use pdfoxide_bindings::{
-    pdf_builder_add_code_block, pdf_builder_add_columns, pdf_builder_add_heading,
-    pdf_builder_add_horizontal_rule, pdf_builder_add_image_bytes, pdf_builder_add_list,
-    pdf_builder_add_page, pdf_builder_add_paragraph, pdf_builder_add_rich_paragraph,
-    pdf_builder_add_space, pdf_builder_add_table, pdf_builder_add_text, pdf_builder_add_text_at,
-    pdf_builder_build, pdf_builder_bytes_free, pdf_builder_create, pdf_builder_free,
-    pdf_builder_save, pdf_builder_set_metadata,
+    pdf_builder_add_barcode, pdf_builder_add_checkbox, pdf_builder_add_circle,
+    pdf_builder_add_code_block, pdf_builder_add_columns, pdf_builder_add_footnote,
+    pdf_builder_add_heading, pdf_builder_add_horizontal_rule, pdf_builder_add_image_bytes,
+    pdf_builder_add_line, pdf_builder_add_link_url, pdf_builder_add_list, pdf_builder_add_page,
+    pdf_builder_add_paragraph, pdf_builder_add_qr_code, pdf_builder_add_rect,
+    pdf_builder_add_rich_paragraph, pdf_builder_add_role_map, pdf_builder_add_space,
+    pdf_builder_add_stamp, pdf_builder_add_table, pdf_builder_add_text, pdf_builder_add_text_at,
+    pdf_builder_add_text_field, pdf_builder_add_watermark, pdf_builder_build,
+    pdf_builder_bytes_free, pdf_builder_create, pdf_builder_free,
+    pdf_builder_register_font_bytes, pdf_builder_save, pdf_builder_set_language,
+    pdf_builder_set_metadata, pdf_builder_set_tagged_pdf_ua1,
+    pdf_builder_streaming_table_add_row, pdf_builder_streaming_table_begin,
+    pdf_builder_streaming_table_end,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -101,7 +108,7 @@ fuzz_target!(|data: &[u8]| {
                 break;
             }
 
-            match cursor.next_u8() % 14 {
+            match cursor.next_u8() % 21 {
                 0 => {
                     let kind = i32::from(cursor.next_u8() % 6);
                     let width = cursor.next_f32();
@@ -232,7 +239,7 @@ fuzz_target!(|data: &[u8]| {
                         std::ptr::null(),
                     );
                 }
-                _ => {
+                13 => {
                     let title = to_c_string(cursor.next_bytes(32));
                     let author = to_c_string(cursor.next_bytes(32));
                     let _ = pdf_builder_set_metadata(
@@ -243,6 +250,189 @@ fuzz_target!(|data: &[u8]| {
                         std::ptr::null(),
                         std::ptr::null(),
                     );
+                }
+                14 => {
+                    let header0 = to_c_string(cursor.next_bytes(16));
+                    let header1 = to_c_string(cursor.next_bytes(16));
+                    let headers = [header0.as_ptr(), header1.as_ptr()];
+                    let widths = [50.0_f32, 100.0_f32];
+                    let aligns = [0_i32, 2_i32];
+                    let index = page_index(&mut cursor, pages);
+                    let begun = pdf_builder_streaming_table_begin(
+                        state,
+                        index,
+                        headers.as_ptr(),
+                        widths.as_ptr(),
+                        aligns.as_ptr(),
+                        2,
+                        1,
+                        0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        2.0,
+                        1.0,
+                        1.0,
+                        1,
+                    );
+                    if begun == 0 {
+                        let rows = usize::from(cursor.next_u8() % 4);
+                        for _ in 0..rows {
+                            let cell0 = to_c_string(cursor.next_bytes(16));
+                            let cell1 = to_c_string(cursor.next_bytes(16));
+                            let cells = [cell0.as_ptr(), cell1.as_ptr()];
+                            let spans = [1_i32, 1_i32];
+                            let _ = pdf_builder_streaming_table_add_row(
+                                state,
+                                cells.as_ptr(),
+                                spans.as_ptr(),
+                                2,
+                            );
+                        }
+                        if cursor.next_u8() % 2 == 0 {
+                            let _ = pdf_builder_streaming_table_end(state);
+                        }
+                    }
+                }
+                15 => {
+                    let name = to_c_string(cursor.next_bytes(16));
+                    let index = page_index(&mut cursor, pages);
+                    let x = cursor.next_f32();
+                    let y = cursor.next_f32();
+                    let width = cursor.next_f32();
+                    let height = cursor.next_f32();
+                    match cursor.next_u8() % 2 {
+                        0 => {
+                            let _ = pdf_builder_add_text_field(
+                                state,
+                                index,
+                                name.as_ptr(),
+                                x,
+                                y,
+                                width,
+                                height,
+                                std::ptr::null(),
+                            );
+                        }
+                        _ => {
+                            let checked = i32::from(cursor.next_u8() % 2);
+                            let _ = pdf_builder_add_checkbox(
+                                state,
+                                index,
+                                name.as_ptr(),
+                                x,
+                                y,
+                                width,
+                                height,
+                                checked,
+                            );
+                        }
+                    }
+                }
+                16 => {
+                    let text = to_c_string(cursor.next_bytes(32));
+                    let index = page_index(&mut cursor, pages);
+                    match cursor.next_u8() % 4 {
+                        0 => {
+                            let _ = pdf_builder_add_link_url(state, index, text.as_ptr());
+                        }
+                        1 => {
+                            let _ = pdf_builder_add_watermark(state, index, text.as_ptr());
+                        }
+                        2 => {
+                            let _ = pdf_builder_add_stamp(state, index, text.as_ptr());
+                        }
+                        _ => {
+                            let reference = to_c_string(cursor.next_bytes(8));
+                            let _ =
+                                pdf_builder_add_footnote(state, index, reference.as_ptr(), text.as_ptr());
+                        }
+                    }
+                }
+                17 => {
+                    let index = page_index(&mut cursor, pages);
+                    let x = cursor.next_f32();
+                    let y = cursor.next_f32();
+                    let width = cursor.next_f32().abs();
+                    let height = cursor.next_f32().abs();
+                    match cursor.next_u8() % 3 {
+                        0 => {
+                            let _ = pdf_builder_add_rect(state, index, x, y, width, height);
+                        }
+                        1 => {
+                            let _ = pdf_builder_add_line(state, index, x, y, x + width, y + height);
+                        }
+                        _ => {
+                            let radius = width.min(100.0);
+                            let _ = pdf_builder_add_circle(
+                                state,
+                                index,
+                                x,
+                                y,
+                                radius,
+                                1,
+                                1.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                std::ptr::null(),
+                                0,
+                                0.0,
+                                0,
+                                0.0,
+                                0.0,
+                                0.0,
+                            );
+                        }
+                    }
+                }
+                18 => {
+                    let data = to_c_string(cursor.next_bytes(32));
+                    let index = page_index(&mut cursor, pages);
+                    let x = cursor.next_f32();
+                    let y = cursor.next_f32();
+                    let size = cursor.next_f32().abs().min(200.0);
+                    match cursor.next_u8() % 2 {
+                        0 => {
+                            let _ = pdf_builder_add_qr_code(state, index, data.as_ptr(), x, y, size);
+                        }
+                        _ => {
+                            let barcode_type = i32::from(cursor.next_u8() % 8);
+                            let _ = pdf_builder_add_barcode(
+                                state,
+                                index,
+                                barcode_type,
+                                data.as_ptr(),
+                                x,
+                                y,
+                                size,
+                                size,
+                            );
+                        }
+                    }
+                }
+                19 => {
+                    let name = to_c_string(cursor.next_bytes(16));
+                    let font = cursor.next_bytes(64);
+                    let _ = pdf_builder_register_font_bytes(
+                        state,
+                        name.as_ptr(),
+                        font.as_ptr(),
+                        font.len() as i32,
+                    );
+                }
+                _ => {
+                    let language = to_c_string(cursor.next_bytes(8));
+                    let custom = to_c_string(cursor.next_bytes(16));
+                    let standard = to_c_string(cursor.next_bytes(16));
+                    let _ = pdf_builder_set_tagged_pdf_ua1(state, i32::from(cursor.next_u8() % 2));
+                    let _ = pdf_builder_set_language(state, language.as_ptr());
+                    let _ = pdf_builder_add_role_map(state, custom.as_ptr(), standard.as_ptr());
                 }
             }
         }
