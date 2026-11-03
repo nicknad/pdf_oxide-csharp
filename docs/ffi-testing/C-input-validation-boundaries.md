@@ -23,3 +23,4 @@
 | C19 | Link target indices | Negative, equal-to-count, future, and `int.MaxValue` target pages | `add_link_page` rejects only negative targets (`rust/src/lib.rs:2828-2842`) |
 | C20 | Watermark ranges | NaN/Inf huge opacity and rotation, zero/negative/Inf rects | `add_watermark_custom` checks only finiteness, not ranges (`rust/src/lib.rs:3117-3134`) |
 | C21 | Form selection values | Combo/list selected value not in options; duplicates; empty field names | `add_combo_box` / `add_list_box` do not validate selected values (`rust/src/lib.rs:3289-3356`) |
+| C22 | Streaming table arrays | Short `headers`/`widths`/`aligns`, short `cells`/`rowspans`, mismatched counts, huge `column_count`, null arrays | Begin and add-row read `count` entries without a separate length (`rust/src/lib.rs:2849-2871`, `:2936-2947`) |

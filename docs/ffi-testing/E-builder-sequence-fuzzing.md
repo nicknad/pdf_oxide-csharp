@@ -14,3 +14,4 @@
 | E10 | Image bytes fuzz | Feed random and truncated PNG/JPEG data to `add_image_bytes` | Exercises encoder/decoder error paths; must return `-1` |
 | E11 | Extended builder sequences | Random sequences mixing forms, links, annotations, watermarks, barcodes, graphics, font registration, and tagged-PDF calls | The new op families share the same mutable builder state |
 | E12 | Editor operation sequences | Random delete/move/rotate/crop/merge/extract/redact sequences, including invalid indices and disposed handles | Editor operations mutate a single upstream handle and can leave it inconsistent |
+| E13 | Streaming table sequences | Random begin/add-row/end/abandon sequences, interleaved with page add and save/build | The open-table state is exclusive and poisons save/build until finished (`rust/src/lib.rs:456-463`) |

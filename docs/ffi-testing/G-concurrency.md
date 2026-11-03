@@ -12,3 +12,4 @@
 | G8 | Certificate/TSA dispose races | Concurrent `Dispose` and use of `PdfSigningCertificate` / `PdfTimestampClient` | No lock or `Interlocked` around handle release (`PdfSigning.cs:109-132`, `:1267-1276`) |
 | G9 | Builder dispose plus finalizer race | Two threads dispose the same `DocumentBuilder`; force `GC.Collect`/finalizers | `_disposed` is a plain bool and the native free is not idempotent |
 | G10 | Parallel signing and verification | Sign/verify independent documents in parallel; share one certificate handle | Confirms per-document isolation and exposes shared-handle races |
+| G11 | Streaming table concurrency | Two threads call begin/add-row/end on one builder; dispose during a stream | Streaming state is a single unsynchronized `Option` in the builder |

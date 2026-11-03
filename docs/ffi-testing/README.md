@@ -13,7 +13,7 @@ surface.
 | B | [B-memory-ownership-lifetime.md](B-memory-ownership-lifetime.md) | Alloc/free ownership, double free, use-after-free |
 | C | [C-input-validation-boundaries.md](C-input-validation-boundaries.md) | NULLs, empty strings, numeric extremes, length mismatches |
 | D | [D-parser-fuzzing.md](D-parser-fuzzing.md) | Fuzzing the PDF parser through the FFI |
-| E | [E-builder-sequence-fuzzing.md](E-builder-sequence-fuzzing.md) | Stateful `DocumentBuilder` operation sequences |
+| E | [E-builder-sequence-fuzzing.md](E-builder-sequence-fuzzing.md) | Stateful builder operation sequences |
 | F | [F-error-channel.md](F-error-channel.md) | Thread-local error and `error_code` channel semantics |
 | G | [G-concurrency.md](G-concurrency.md) | Parallel documents, shared handles, dispose races |
 | H | [H-resource-process-robustness.md](H-resource-process-robustness.md) | Leaks, OOM, panics, native faults |
@@ -22,6 +22,7 @@ surface.
 | K | [K-editor-encryption-redaction.md](K-editor-encryption-redaction.md) | Editor handles, page editing, encryption, redaction |
 | L | [L-signing-timestamp.md](L-signing-timestamp.md) | Certificates, signatures, verification, TSA |
 | M | [M-builder-forms-annotations-graphics.md](M-builder-forms-annotations-graphics.md) | Forms, annotations, links, watermarks, barcodes, graphics, fonts, tagged PDF |
+| N | [N-streaming-builder.md](N-streaming-builder.md) | Streaming tables and same-size page builder |
 
 ## FFI surface under test
 
@@ -35,6 +36,7 @@ surface.
 | Opaque handle (shim) | `pdf_builder_*` | `PdfBuilderState*`, create/free, no synchronization |
 | Opaque handle (upstream) | `document_editor_*`, `pdf_document_*`, certificate/signature/TSA/timestamp, annotation/form lists | free with the matching upstream `*_free`; editor access must be serialized |
 | Builder extensions | forms, links, annotations, watermarks, stamps, footnotes, barcodes, vector graphics, font registration, tagged PDF | mostly `RC` with caller-owned arrays/counts and no separate length parameter |
+| Streaming builder | `pdf_builder_streaming_table_begin/add_row/end`, `pdf_builder_add_page_like` | `RC`/index; one open table per builder; save/build refused until `end` |
 | Support | `pdf_last_error_message`, `pdf_get_string_len`, `pdf_string_free` | thread-local error, byte length, deallocation |
 
 ## Implemented harness (current state)
@@ -48,7 +50,7 @@ surface.
   `DllImport` entry point and verifies the shipped native library exports it.
 - `rust/fuzz` - `cargo fuzz` targets for the document API and the builder API.
 
-Groups K-M are design-only so far; they are the next implementation targets. See
+Groups K-N are design-only so far; they are the next implementation targets. See
 [I-crash-harness.md](I-crash-harness.md) for the isolation contract and exit codes.
 
 ## Re-evaluation checklist (when trunk advances)
@@ -57,7 +59,7 @@ Groups K-M are design-only so far; they are the next implementation targets. See
    `git log --oneline <revision>..main -- rust/src/lib.rs csharp/PdfOxideBindings dotnet/PdfOxideBindings.cs`
 2. Enumerate new or changed `pub extern "C"` exports and new `DllImport` declarations.
 3. Re-run `NativeAbiTests` (A1) so new symbols are covered automatically.
-4. Add rows to the relevant group: new handles usually belong in B/G/I, new builders in C/E/M.
+4. Add rows to the relevant group: new handles usually belong in B/G/I, new builders in C/E/M/N.
 5. Record the revision and commits under "Catalogue revisions".
 6. Validate with `dotnet test` and `cargo check --manifest-path rust/fuzz/Cargo.toml`.
 
@@ -68,6 +70,8 @@ Groups K-M are design-only so far; they are the next implementation targets. See
   (editor, encryption, redaction, signing, annotations, forms, barcodes, graphics,
   fonts, tagged PDF). Added K-M and new cross-cutting rows. Implemented A1 in
   `NativeAbiTests.cs`.
+- 2026-11-03: re-evaluated `4997b91` (streaming tables and same-size page builder).
+  Added N and streaming rows to B/C/D/E/G/I.
 
 ## High-value targets found while reading the code
 
@@ -110,3 +114,13 @@ Groups K-M are design-only so far; they are the next implementation targets. See
     paths can panic or abort the host process.
 16. `CString::new` on extracted text and `serde_json` non-finite floats still fail
     the whole extraction (see C13/C14).
+17. An open streaming table blocks save/build (`rust/src/lib.rs:456-463`);
+    `PdfStreamingTable` has no `Dispose`/finalizer and marks itself finished before
+    calling native end (`PdfStreamingTable.cs:107-117`), so a failure can poison
+    both sides.
+18. Streaming begin/add-row trust caller counts and do not validate header/grid
+    colors, grid width, padding, or row span against `max_rowspan`
+    (`rust/src/lib.rs:2849-2885`, `:2924-2947`).
+19. `pdf_builder_add_page_like` returns the new page index and C# updates
+    `_pageCount` with `Math.Max` (`rust/src/lib.rs:2973-3006`,
+    `DocumentBuilder.cs:686-699`).

@@ -16,3 +16,4 @@
 | D12 | Encrypted PDF and password corpus | Mutate encrypted seeds and passwords; cover empty/wrong/embedded-NUL passwords | Authentication and editor-from-bytes are new code paths |
 | D13 | Managed signature fallback fuzz | Fuzz `PdfSigning` fallback parsing of `/ByteRange`, `/Contents`, and DER with SharpFuzz or property tests | The fallback allocates from attacker-controlled ranges (`PdfSigning.cs:541-1046`) |
 | D14 | Builder-extension fuzz | Add form/link/watermark/stamp/footnote/barcode/graphics/font/tagged-PDF ops to the builder fuzzer | The current builder fuzzer stops at the pre-`ca8061a` surface |
+| D15 | Streaming builder fuzz | Fuzz begin/add/end sequences, mismatched column/row arrays, and abandoned tables | The streaming state machine is new and has no fuzz coverage |

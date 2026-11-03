@@ -27,6 +27,7 @@ handles land:
 - dual allocators: shim `pdf_bytes_free(len)` versus upstream `free_bytes(ptr)`
 - signature/timestamp: certificate/TSA dispose races and the borrowed token
 - unchecked arrays: radio group, dash/point/path, table cells, image/font lengths
+- streaming table: abandoned open table, begin/end mismatch, short column/row arrays
 
 `NativeAbiTests` covers scenario A1 (export presence) in the normal test run.
 

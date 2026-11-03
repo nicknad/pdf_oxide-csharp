@@ -20,3 +20,4 @@ single valid free function.
 | B13 | Certificate / TSA / signature handles | Double-dispose, use-after-dispose, and finalizer races for `PdfSigningCertificate` and `PdfTimestampClient` | These wrappers have no lock around `Dispose` (`PdfSigning.cs:109-132`, `:1267-1276`) |
 | B14 | Borrowed timestamp token | Free the timestamp, then use/free the token pointer in a child process | `pdf_timestamp_get_token` returns a borrowed pointer (`PdfSigning.cs:1242-1261`) |
 | B15 | Concurrent dispose | Two threads dispose the same builder/editor/certificate/TSA handle; run under TSan | Managed `_disposed` checks are non-atomic and native free is not idempotent |
+| B16 | Abandoned streaming table | Begin a table, add rows, never call end, then free the builder; sample memory and verify save/build refusal | Rows accumulate in `PendingStreamingTable.rows` until end or builder free (`rust/src/lib.rs:2887-2892`) |
