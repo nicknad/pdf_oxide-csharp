@@ -66,6 +66,9 @@ internal static class Scenarios
         ["signing-roundtrip"] = _ => SigningRoundtrip(),
         ["editor-dispose-race"] = _ => EditorDisposeRace(),
         ["builder-concurrent-writes"] = _ => BuilderConcurrentWrites(),
+        ["tsa-client-lifecycle"] = _ => TsaClientLifecycle(),
+        ["tsa-client-double-free"] = _ => TsaClientDoubleFree(),
+        ["builder-error-recovery"] = _ => BuilderErrorRecovery(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -1595,6 +1598,123 @@ internal static class Scenarios
             }
 
             return ScenarioResult.Ok("concurrent builder writes completed");
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // TSA lifecycle and builder error recovery (L6, M11)
+    // ---------------------------------------------------------------------
+
+    private static unsafe ScenarioResult TsaClientLifecycle()
+    {
+        var failures = new List<string>();
+        var observations = new List<string>();
+        byte[] url = Utf8("http://127.0.0.1:1");
+        fixed (byte* pUrl = url)
+        {
+            int error = 0;
+            IntPtr client = UpstreamNativeMethods.pdf_tsa_client_create(
+                pUrl, null, null, 1, 0, 0, 0, &error);
+            observations.Add("create-error=" + error.ToString(CultureInfo.InvariantCulture));
+            if (client != IntPtr.Zero)
+            {
+                UpstreamNativeMethods.pdf_tsa_client_free(client);
+            }
+
+            error = 0;
+            IntPtr nullUrl = UpstreamNativeMethods.pdf_tsa_client_create(
+                null, null, null, 1, 0, 0, 0, &error);
+            if (nullUrl != IntPtr.Zero)
+            {
+                failures.Add("null-url-handle");
+                UpstreamNativeMethods.pdf_tsa_client_free(nullUrl);
+            }
+            if (error == 0)
+            {
+                failures.Add("null-url-error=0");
+            }
+        }
+
+        UpstreamNativeMethods.pdf_tsa_client_free(IntPtr.Zero);
+        return failures.Count == 0
+            ? ScenarioResult.Ok(string.Join(", ", observations))
+            : ScenarioResult.Fail(string.Join(", ", failures));
+    }
+
+    private static unsafe ScenarioResult TsaClientDoubleFree()
+    {
+        byte[] url = Utf8("http://127.0.0.1:1");
+        fixed (byte* pUrl = url)
+        {
+            int error = 0;
+            IntPtr client = UpstreamNativeMethods.pdf_tsa_client_create(
+                pUrl, null, null, 1, 0, 0, 0, &error);
+            if (client == IntPtr.Zero)
+            {
+                return ScenarioResult.Ok("client creation failed; nothing to free");
+            }
+
+            UpstreamNativeMethods.pdf_tsa_client_free(client);
+            UpstreamNativeMethods.pdf_tsa_client_free(client);
+            return ScenarioResult.Ok("freed the same TSA client twice");
+        }
+    }
+
+    private static unsafe ScenarioResult BuilderErrorRecovery()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            void Expect(string name, int actual, int expected)
+            {
+                if (actual != expected)
+                {
+                    failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                        + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            Expect("table-zero-rows", NativeMethods.pdf_builder_add_table(
+                state, 0, null, 0, 1, 0, 0), -1);
+            Expect("rect-invalid-page", NativeMethods.pdf_builder_add_rect(
+                state, 5, 0f, 0f, 10f, 10f), -1);
+            Expect("link-invalid-page", NativeMethods.pdf_builder_add_link_url(state, 5, null), -1);
+
+            byte[] text = Utf8("recovered");
+            fixed (byte* pText = text)
+            {
+                Expect("text-invalid-page", NativeMethods.pdf_builder_add_text(
+                    state, 5, pText, null, 10f), -1);
+                Expect("text-valid", NativeMethods.pdf_builder_add_text(
+                    state, 0, pText, null, 10f), 0);
+            }
+
+            Expect("count", NativeMethods.pdf_builder_get_page_count(state), 1);
+            (int status, int length) = BuildAndFree(state);
+            Expect("build", status, 0);
+            if (length <= 0)
+            {
+                failures.Add("build-length");
+            }
+
+            return failures.Count == 0
+                ? ScenarioResult.Ok("builder recovered after invalid operations")
+                : ScenarioResult.Fail(string.Join(", ", failures));
         }
         finally
         {

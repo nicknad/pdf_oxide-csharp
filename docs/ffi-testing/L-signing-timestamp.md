@@ -3,8 +3,10 @@
 Signing and timestamp APIs are upstream `pdf_oxide` exports declared in
 `csharp/PdfOxideBindings/UpstreamNativeMethods.cs:278-422`, not in `rust/src/lib.rs`.
 
-Status: L1-L4 and the null-handle crash cases are implemented in `FfiCrashHost`,
-including a self-signed sign/verify round-trip. L5-L10 remain design-only.
+Status: L1-L4, L6, and the null-handle crash cases are implemented in
+`FfiCrashHost`, including a self-signed sign/verify round-trip and TSA client
+lifecycle. L5 and L7-L10 remain design-only (TSA network, version skew, and large
+fixtures).
 Upstream `error_code` values are richer than `-1`: invalid certificate input
 returned `1` and `3`, so tests must assert non-zero rather than equality with `-1`.
 `PdfSigning` also contains a managed fallback parser for PDFs with zero native

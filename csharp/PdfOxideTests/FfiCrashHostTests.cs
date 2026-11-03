@@ -196,6 +196,22 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestTsaClientLifecycle()
+    {
+        CrashHostResult result = CrashHostRunner.Run("tsa-client-lifecycle");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestBuilderErrorRecovery()
+    {
+        CrashHostResult result = CrashHostRunner.Run("builder-error-recovery");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestBuilderExtensionValidation()
     {
         CrashHostResult result = CrashHostRunner.Run("builder-extension-validation");
@@ -278,6 +294,7 @@ public class FfiCrashHostTests
     [InlineData("graphics-array-mismatch")]
     [InlineData("editor-dispose-race")]
     [InlineData("builder-concurrent-writes")]
+    [InlineData("tsa-client-double-free")]
     public void TestMemorySafetyScenarioTerminatesWithoutManagedFailure(string scenario)
     {
         CrashHostResult result = CrashHostRunner.Run(scenario);

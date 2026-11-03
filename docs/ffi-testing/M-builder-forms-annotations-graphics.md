@@ -8,8 +8,8 @@ fuzzing targets.
 
 Status: M2-M10 are implemented in `FfiCrashHost` (builder extensions, short
 graphics arrays, invalid font bytes, forms flattening, large builder state).
-M12 is implemented in `rust/fuzz/fuzz_targets/builder.rs`. M1 (version skew) and
-M11 remain design-only.
+M11 and M12 are implemented (`builder-error-recovery` and the extended builder
+fuzzer). M1 (version skew) remains design-only.
 
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |
