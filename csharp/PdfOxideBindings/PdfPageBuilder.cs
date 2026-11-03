@@ -239,6 +239,374 @@ namespace PdfOxide
             return this;
         }
 
+        /// <summary>
+        /// Adds a URL link annotation over the most recent text.
+        /// </summary>
+        /// <param name="url">The URL to open when the link is clicked.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Design",
+            "CA1054:URI-like parameters should not be strings",
+            Justification = "Matches the native string-based annotation API.")]
+        public PdfPageBuilder LinkUrl(string url)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(url);
+            _owner.AddLinkUrl(_pageIndex, url);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds an internal link annotation over the most recent text.
+        /// </summary>
+        /// <param name="pageIndex">The zero-based target page index.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder LinkPage(int pageIndex)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(pageIndex);
+            _owner.AddLinkPage(_pageIndex, pageIndex);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a named destination link annotation over the most recent text.
+        /// </summary>
+        /// <param name="destination">The named destination.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder LinkNamed(string destination)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(destination);
+            _owner.AddLinkNamed(_pageIndex, destination);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a JavaScript action link annotation over the most recent text.
+        /// </summary>
+        /// <param name="script">The JavaScript to run when clicked.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder LinkJavaScript(string script)
+        {
+            ArgumentNullException.ThrowIfNull(script);
+            _owner.AddLinkJavaScript(_pageIndex, script);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a URL link annotation over a rectangle.
+        /// </summary>
+        /// <param name="rect">The link area in points.</param>
+        /// <param name="url">The URL to open when the link is clicked.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Design",
+            "CA1054:URI-like parameters should not be strings",
+            Justification = "Matches the native string-based annotation API.")]
+        public PdfPageBuilder LinkRect(PdfRect rect, string url)
+        {
+            ValidateRect(rect);
+            ArgumentException.ThrowIfNullOrEmpty(url);
+            _owner.AddLinkRect(_pageIndex, rect, url);
+            return this;
+        }
+
+        /// <summary>
+        /// Highlights the most recent text.
+        /// </summary>
+        /// <param name="color">The highlight color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Highlight(PdfColor color)
+        {
+            _owner.AddTextMarkup(_pageIndex, PdfTextMarkupType.Highlight, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Underlines the most recent text.
+        /// </summary>
+        /// <param name="color">The underline color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Underline(PdfColor color)
+        {
+            _owner.AddTextMarkup(_pageIndex, PdfTextMarkupType.Underline, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Strikes through the most recent text.
+        /// </summary>
+        /// <param name="color">The strikeout color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Strikeout(PdfColor color)
+        {
+            _owner.AddTextMarkup(_pageIndex, PdfTextMarkupType.StrikeOut, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a squiggly underline to the most recent text.
+        /// </summary>
+        /// <param name="color">The squiggly underline color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Squiggly(PdfColor color)
+        {
+            _owner.AddTextMarkup(_pageIndex, PdfTextMarkupType.Squiggly, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Highlights a rectangle.
+        /// </summary>
+        /// <param name="rect">The area to highlight in points.</param>
+        /// <param name="color">The highlight color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder HighlightRect(PdfRect rect, PdfColor color)
+        {
+            ValidateRect(rect);
+            _owner.AddTextMarkupRect(_pageIndex, PdfTextMarkupType.Highlight, rect, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Underlines a rectangle.
+        /// </summary>
+        /// <param name="rect">The area to underline in points.</param>
+        /// <param name="color">The underline color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder UnderlineRect(PdfRect rect, PdfColor color)
+        {
+            ValidateRect(rect);
+            _owner.AddTextMarkupRect(_pageIndex, PdfTextMarkupType.Underline, rect, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Strikes through a rectangle.
+        /// </summary>
+        /// <param name="rect">The area to strike through in points.</param>
+        /// <param name="color">The strikeout color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StrikeoutRect(PdfRect rect, PdfColor color)
+        {
+            ValidateRect(rect);
+            _owner.AddTextMarkupRect(_pageIndex, PdfTextMarkupType.StrikeOut, rect, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a squiggly underline over a rectangle.
+        /// </summary>
+        /// <param name="rect">The area in points.</param>
+        /// <param name="color">The squiggly underline color.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder SquigglyRect(PdfRect rect, PdfColor color)
+        {
+            ValidateRect(rect);
+            _owner.AddTextMarkupRect(_pageIndex, PdfTextMarkupType.Squiggly, rect, color);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a sticky note annotation at the current cursor position.
+        /// </summary>
+        /// <param name="text">The note text.</param>
+        /// <param name="icon">The note icon.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StickyNote(string text, PdfTextAnnotationIcon icon = PdfTextAnnotationIcon.Note)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            _owner.AddStickyNote(_pageIndex, text, icon);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a sticky note annotation at an absolute position.
+        /// </summary>
+        /// <param name="x">Horizontal position in points.</param>
+        /// <param name="y">Vertical position in points.</param>
+        /// <param name="text">The note text.</param>
+        /// <param name="icon">The note icon.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StickyNoteAt(
+            float x,
+            float y,
+            string text,
+            PdfTextAnnotationIcon icon = PdfTextAnnotationIcon.Note)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                throw new ArgumentOutOfRangeException(nameof(x), "Sticky note position must be finite.");
+            }
+            _owner.AddStickyNoteAt(_pageIndex, x, y, text, icon);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a free text annotation over a rectangle using default font settings.
+        /// </summary>
+        /// <param name="rect">The text box in points.</param>
+        /// <param name="text">The annotation text.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder FreeText(PdfRect rect, string text)
+        {
+            ValidateRect(rect);
+            ArgumentNullException.ThrowIfNull(text);
+            _owner.AddFreeText(_pageIndex, rect, text, null, 0f);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a free text annotation over a rectangle with custom font settings.
+        /// </summary>
+        /// <param name="rect">The text box in points.</param>
+        /// <param name="text">The annotation text.</param>
+        /// <param name="font">The font name.</param>
+        /// <param name="size">The font size in points.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder FreeText(PdfRect rect, string text, string font, float size)
+        {
+            ValidateRect(rect);
+            ArgumentNullException.ThrowIfNull(text);
+            ArgumentException.ThrowIfNullOrEmpty(font);
+            if (!float.IsFinite(size) || size <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Font size must be positive and finite.");
+            }
+            _owner.AddFreeText(_pageIndex, rect, text, font, size);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a text watermark centered on the page.
+        /// </summary>
+        /// <param name="text">The watermark text.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Watermark(string text)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(text);
+            _owner.AddWatermark(_pageIndex, text);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a "CONFIDENTIAL" watermark.
+        /// </summary>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder WatermarkConfidential()
+        {
+            _owner.AddWatermarkPreset(_pageIndex, 0);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a "DRAFT" watermark.
+        /// </summary>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder WatermarkDraft()
+        {
+            _owner.AddWatermarkPreset(_pageIndex, 1);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a custom watermark.
+        /// </summary>
+        /// <param name="options">The watermark options.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Watermark(PdfWatermarkOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+            ArgumentException.ThrowIfNullOrEmpty(options.Text);
+            ArgumentException.ThrowIfNullOrEmpty(options.Font);
+            if (!float.IsFinite(options.Opacity) || options.Opacity < 0f || options.Opacity > 1f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options), options.Opacity, "Watermark opacity must be between 0 and 1.");
+            }
+            if (!float.IsFinite(options.Rotation))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options), options.Rotation, "Watermark rotation must be finite.");
+            }
+            if (!float.IsFinite(options.Size) || options.Size <= 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options), options.Size, "Watermark font size must be positive and finite.");
+            }
+            if (options.Rect.HasValue)
+            {
+                ValidateRect(options.Rect.Value);
+            }
+
+            _owner.AddWatermarkCustom(_pageIndex, options);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a stamp annotation at the current cursor position.
+        /// </summary>
+        /// <param name="type">The stamp type.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Stamp(PdfStampType type)
+        {
+            _owner.AddStamp(_pageIndex, type.ToPdfName());
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a custom stamp annotation with an explicit PDF stamp name at the
+        /// current cursor position.
+        /// </summary>
+        /// <param name="customName">The custom stamp name.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Stamp(string customName)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(customName);
+            _owner.AddStamp(_pageIndex, customName);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a stamp annotation over a rectangle.
+        /// </summary>
+        /// <param name="rect">The stamp area in points.</param>
+        /// <param name="type">The stamp type.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StampAt(PdfRect rect, PdfStampType type)
+        {
+            ValidateRect(rect);
+            _owner.AddStampAt(_pageIndex, rect, type.ToPdfName());
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a custom stamp annotation over a rectangle.
+        /// </summary>
+        /// <param name="rect">The stamp area in points.</param>
+        /// <param name="customName">The custom stamp name.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder StampAt(PdfRect rect, string customName)
+        {
+            ValidateRect(rect);
+            ArgumentException.ThrowIfNullOrEmpty(customName);
+            _owner.AddStampAt(_pageIndex, rect, customName);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a footnote at the current cursor position.
+        /// </summary>
+        /// <param name="referenceMark">The reference mark, such as "1".</param>
+        /// <param name="noteText">The footnote body text.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Footnote(string referenceMark, string noteText)
+        {
+            ArgumentNullException.ThrowIfNull(referenceMark);
+            ArgumentNullException.ThrowIfNull(noteText);
+            _owner.AddFootnote(_pageIndex, referenceMark, noteText);
+            return this;
+        }
+
         private static void ValidateListItems(string[] items)
         {
             if (items.Length == 0)

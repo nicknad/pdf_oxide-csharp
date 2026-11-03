@@ -421,6 +421,95 @@ namespace PdfOxide
 
         #endregion
 
+        #region Annotations
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern IntPtr pdf_document_open(byte* path, int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern IntPtr pdf_document_get_page_annotations(
+            IntPtr document,
+            int page,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_oxide_annotation_count(IntPtr list);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_annotation_get_type(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_annotation_get_subtype(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_annotation_get_content(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void pdf_oxide_annotation_get_rect(
+            IntPtr list,
+            int index,
+            float* x,
+            float* y,
+            float* w,
+            float* h,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_annotation_get_author(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern uint pdf_oxide_annotation_get_color(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte pdf_oxide_annotation_is_hidden(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte pdf_oxide_annotation_is_printable(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte pdf_oxide_annotation_is_read_only(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_link_annotation_get_uri(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_text_annotation_get_icon_name(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void pdf_oxide_annotation_list_free(IntPtr list);
+
+        #endregion
+
         #region String lifetime
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -386,6 +386,155 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Gets the annotations on a page.
+        /// </summary>
+        /// <param name="pageIndex">Zero-based index of the page.</param>
+        /// <returns>The annotations on the page.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="pageIndex"/> is negative.</exception>
+        /// <exception cref="PdfOxideException">Thrown when annotations cannot be read.</exception>
+        public IReadOnlyList<PdfAnnotationInfo> GetAnnotations(int pageIndex)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(pageIndex);
+
+            unsafe
+            {
+                IntPtr document = IntPtr.Zero;
+                IntPtr list = IntPtr.Zero;
+                try
+                {
+                    int errorCode = 0;
+                    fixed (byte* pPath = GetUtf8Bytes(_path))
+                    {
+                        document = UpstreamNativeMethods.pdf_document_open(pPath, &errorCode);
+                    }
+
+                    if (document == IntPtr.Zero)
+                    {
+                        throw new PdfOxideException(
+                            $"Native pdf_document_open failed (error code {errorCode}).");
+                    }
+
+                    list = UpstreamNativeMethods.pdf_document_get_page_annotations(
+                        document, pageIndex, &errorCode);
+                    if (list == IntPtr.Zero)
+                    {
+                        throw new PdfOxideException(
+                            $"Native pdf_document_get_page_annotations failed (error code {errorCode}).");
+                    }
+
+                    int count = UpstreamNativeMethods.pdf_oxide_annotation_count(list);
+                    var annotations = new List<PdfAnnotationInfo>(Math.Max(count, 0));
+                    for (int index = 0; index < count; index++)
+                    {
+                        annotations.Add(ReadAnnotation(list, index));
+                    }
+
+                    return annotations;
+                }
+                finally
+                {
+                    if (list != IntPtr.Zero)
+                    {
+                        UpstreamNativeMethods.pdf_oxide_annotation_list_free(list);
+                    }
+                    if (document != IntPtr.Zero)
+                    {
+                        UpstreamNativeMethods.pdf_document_free(document);
+                    }
+                }
+            }
+        }
+
+        private static unsafe PdfAnnotationInfo ReadAnnotation(IntPtr list, int index)
+        {
+            string type = ReadAnnotationString(list, index, AnnotationStringField.Type) ?? string.Empty;
+            string subtype = ReadAnnotationString(list, index, AnnotationStringField.Subtype) ?? string.Empty;
+            string? contents = ReadAnnotationString(list, index, AnnotationStringField.Content);
+            string? author = ReadAnnotationString(list, index, AnnotationStringField.Author);
+            string? uri = ReadAnnotationString(list, index, AnnotationStringField.Uri);
+            string? iconName = ReadAnnotationString(list, index, AnnotationStringField.IconName);
+
+            int errorCode = 0;
+            float x = 0f;
+            float y = 0f;
+            float width = 0f;
+            float height = 0f;
+            UpstreamNativeMethods.pdf_oxide_annotation_get_rect(
+                list, index, &x, &y, &width, &height, &errorCode);
+
+            uint packedColor = UpstreamNativeMethods.pdf_oxide_annotation_get_color(list, index, &errorCode);
+            PdfColor? color = packedColor == 0
+                ? null
+                : PdfColor.FromRgb(
+                    (byte)((packedColor >> 16) & 0xFF),
+                    (byte)((packedColor >> 8) & 0xFF),
+                    (byte)(packedColor & 0xFF));
+
+            return new PdfAnnotationInfo
+            {
+                Type = type,
+                Subtype = subtype,
+                Contents = contents,
+                Author = author,
+                Rect = new PdfRect(x, y, width, height),
+                Color = color,
+                IsHidden = UpstreamNativeMethods.pdf_oxide_annotation_is_hidden(list, index, &errorCode) != 0,
+                IsPrintable = UpstreamNativeMethods.pdf_oxide_annotation_is_printable(list, index, &errorCode) != 0,
+                IsReadOnly = UpstreamNativeMethods.pdf_oxide_annotation_is_read_only(list, index, &errorCode) != 0,
+                Uri = uri,
+                IconName = iconName,
+            };
+        }
+
+        private static unsafe string? ReadAnnotationString(
+            IntPtr list,
+            int index,
+            AnnotationStringField field)
+        {
+            int errorCode = 0;
+            byte* ptr = field switch
+            {
+                AnnotationStringField.Type => UpstreamNativeMethods.pdf_oxide_annotation_get_type(
+                    list, index, &errorCode),
+                AnnotationStringField.Subtype => UpstreamNativeMethods.pdf_oxide_annotation_get_subtype(
+                    list, index, &errorCode),
+                AnnotationStringField.Content => UpstreamNativeMethods.pdf_oxide_annotation_get_content(
+                    list, index, &errorCode),
+                AnnotationStringField.Author => UpstreamNativeMethods.pdf_oxide_annotation_get_author(
+                    list, index, &errorCode),
+                AnnotationStringField.Uri => UpstreamNativeMethods.pdf_oxide_link_annotation_get_uri(
+                    list, index, &errorCode),
+                AnnotationStringField.IconName => UpstreamNativeMethods.pdf_oxide_text_annotation_get_icon_name(
+                    list, index, &errorCode),
+                _ => null,
+            };
+
+            if (ptr == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Utf8PtrToString(ptr);
+            }
+            finally
+            {
+                UpstreamNativeMethods.free_string(ptr);
+            }
+        }
+
+        private enum AnnotationStringField
+        {
+            Type,
+            Subtype,
+            Content,
+            Author,
+            Uri,
+            IconName,
+        }
+
+        /// <summary>
         /// Converts a native pointer to a UTF-8 string and frees the native memory.
         /// </summary>
         /// <param name="ptr">Pointer to native string allocated by the FFI.</param>

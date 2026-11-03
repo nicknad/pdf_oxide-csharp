@@ -385,6 +385,112 @@ namespace PdfOxide
         internal static extern int pdf_builder_add_image_bytes(PdfBuilderState* state, int page_index, byte* data, int len, float x, float y, float width, float height, byte* alt);
 
         /// <summary>
+        ///  Add a URL link annotation to the most recent text on the page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_link_url", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_link_url(PdfBuilderState* state, int page_index, byte* url);
+
+        /// <summary>
+        ///  Add an internal page link annotation to the most recent text on the page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_link_page", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_link_page(PdfBuilderState* state, int page_index, int target_page);
+
+        /// <summary>
+        ///  Add a named destination link annotation to the most recent text on the page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_link_named", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_link_named(PdfBuilderState* state, int page_index, byte* destination);
+
+        /// <summary>
+        ///  Add a JavaScript action link annotation to the most recent text on the page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_link_javascript", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_link_javascript(PdfBuilderState* state, int page_index, byte* script);
+
+        /// <summary>
+        ///  Add a URL link annotation over a rectangle.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_link_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_link_rect(PdfBuilderState* state, int page_index, float x, float y, float width, float height, byte* url);
+
+        /// <summary>
+        ///  Add a text markup annotation to the most recent text on the page.
+        ///
+        ///  `kind` is 0=Highlight, 1=Underline, 2=StrikeOut, 3=Squiggly.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_text_markup", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_text_markup(PdfBuilderState* state, int page_index, int kind, float r, float g, float b);
+
+        /// <summary>
+        ///  Add a text markup annotation over a rectangle.
+        ///
+        ///  `kind` is 0=Highlight, 1=Underline, 2=StrikeOut, 3=Squiggly.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_text_markup_rect", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_text_markup_rect(PdfBuilderState* state, int page_index, int kind, float x, float y, float width, float height, float r, float g, float b);
+
+        /// <summary>
+        ///  Add a sticky note annotation at the current cursor position.
+        ///
+        ///  `icon` is 0=Comment, 1=Key, 2=Note, 3=Help, 4=NewParagraph, 5=Paragraph,
+        ///  6=Insert.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_sticky_note", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_sticky_note(PdfBuilderState* state, int page_index, byte* text, int icon);
+
+        /// <summary>
+        ///  Add a sticky note annotation at an absolute position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_sticky_note_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_sticky_note_at(PdfBuilderState* state, int page_index, float x, float y, byte* text, int icon);
+
+        /// <summary>
+        ///  Add a free text annotation over a rectangle. `font` may be null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_freetext", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_freetext(PdfBuilderState* state, int page_index, float x, float y, float width, float height, byte* text, byte* font, float size);
+
+        /// <summary>
+        ///  Add a text watermark centered on the page.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_watermark", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_watermark(PdfBuilderState* state, int page_index, byte* text);
+
+        /// <summary>
+        ///  Add a preset watermark. `kind` is 0=Confidential, 1=Draft.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_watermark_preset", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_watermark_preset(PdfBuilderState* state, int page_index, int kind);
+
+        /// <summary>
+        ///  Add a fully custom watermark. When `has_rect` is non-zero the rectangle
+        ///  values are used; otherwise the watermark uses the writer default rectangle.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_watermark_custom", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_watermark_custom(PdfBuilderState* state, int page_index, byte* text, float opacity, float rotation, byte* font, float size, float r, float g, float b, int has_rect, float x, float y, float width, float height);
+
+        /// <summary>
+        ///  Add a stamp annotation at the current cursor position.
+        ///
+        ///  Pass an empty string to use the default draft stamp.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_stamp", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_stamp(PdfBuilderState* state, int page_index, byte* type_name);
+
+        /// <summary>
+        ///  Add a stamp annotation over a rectangle.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_stamp_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_stamp_at(PdfBuilderState* state, int page_index, float x, float y, float width, float height, byte* type_name);
+
+        /// <summary>
+        ///  Add a footnote at the current cursor position.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_footnote", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_footnote(PdfBuilderState* state, int page_index, byte* ref_mark, byte* note_text);
+
+        /// <summary>
         ///  Save the accumulated document to a file. The builder remains usable.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_save", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -410,6 +516,18 @@ namespace PdfOxide
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_bytes_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void pdf_bytes_free(byte* data, int len);
+
+        /// <summary>
+        ///  Open a password-protected PDF for editing.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdfoxide_editor_open_with_password", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void* pdfoxide_editor_open_with_password(byte* path, byte* password, int* error_code);
+
+        /// <summary>
+        ///  Open a password-protected PDF from memory for editing.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdfoxide_editor_open_from_bytes_with_password", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void* pdfoxide_editor_open_from_bytes_with_password(byte* data, nuint len, byte* password, int* error_code);
 
         /// <summary>
         ///  Retrieve the last error message.

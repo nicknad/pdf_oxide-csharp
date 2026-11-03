@@ -395,6 +395,179 @@ namespace PdfOxide
             }
         }
 
+        internal void AddLinkUrl(int pageIndex, string url)
+        {
+            CheckDisposed();
+
+            fixed (byte* pUrl = Utf8(url))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_link_url(_state, pageIndex, pUrl));
+            }
+        }
+
+        internal void AddLinkPage(int pageIndex, int targetPage)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_link_page(_state, pageIndex, targetPage));
+        }
+
+        internal void AddLinkNamed(int pageIndex, string destination)
+        {
+            CheckDisposed();
+
+            fixed (byte* pDestination = Utf8(destination))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_link_named(_state, pageIndex, pDestination));
+            }
+        }
+
+        internal void AddLinkJavaScript(int pageIndex, string script)
+        {
+            CheckDisposed();
+
+            fixed (byte* pScript = Utf8(script))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_link_javascript(_state, pageIndex, pScript));
+            }
+        }
+
+        internal void AddLinkRect(int pageIndex, PdfRect rect, string url)
+        {
+            CheckDisposed();
+
+            fixed (byte* pUrl = Utf8(url))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_link_rect(
+                    _state, pageIndex, rect.X, rect.Y, rect.Width, rect.Height, pUrl));
+            }
+        }
+
+        internal void AddTextMarkup(int pageIndex, PdfTextMarkupType kind, PdfColor color)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_text_markup(
+                _state, pageIndex, (int)kind, color.R, color.G, color.B));
+        }
+
+        internal void AddTextMarkupRect(int pageIndex, PdfTextMarkupType kind, PdfRect rect, PdfColor color)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_text_markup_rect(
+                _state, pageIndex, (int)kind,
+                rect.X, rect.Y, rect.Width, rect.Height,
+                color.R, color.G, color.B));
+        }
+
+        internal void AddStickyNote(int pageIndex, string text, PdfTextAnnotationIcon icon)
+        {
+            CheckDisposed();
+
+            fixed (byte* pText = Utf8(text))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_sticky_note(_state, pageIndex, pText, (int)icon));
+            }
+        }
+
+        internal void AddStickyNoteAt(int pageIndex, float x, float y, string text, PdfTextAnnotationIcon icon)
+        {
+            CheckDisposed();
+
+            fixed (byte* pText = Utf8(text))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_sticky_note_at(
+                    _state, pageIndex, x, y, pText, (int)icon));
+            }
+        }
+
+        internal void AddFreeText(int pageIndex, PdfRect rect, string text, string? font, float size)
+        {
+            CheckDisposed();
+            byte[]? fontBytes = Utf8OrNull(font);
+
+            fixed (byte* pText = Utf8(text))
+            fixed (byte* pFont = fontBytes)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_freetext(
+                    _state, pageIndex, rect.X, rect.Y, rect.Width, rect.Height, pText, pFont, size));
+            }
+        }
+
+        internal void AddWatermark(int pageIndex, string text)
+        {
+            CheckDisposed();
+
+            fixed (byte* pText = Utf8(text))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_watermark(_state, pageIndex, pText));
+            }
+        }
+
+        internal void AddWatermarkPreset(int pageIndex, int kind)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_add_watermark_preset(_state, pageIndex, kind));
+        }
+
+        internal void AddWatermarkCustom(int pageIndex, PdfWatermarkOptions options)
+        {
+            CheckDisposed();
+            PdfRect? rect = options.Rect;
+
+            fixed (byte* pText = Utf8(options.Text))
+            fixed (byte* pFont = Utf8(options.Font))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_watermark_custom(
+                    _state,
+                    pageIndex,
+                    pText,
+                    options.Opacity,
+                    options.Rotation,
+                    pFont,
+                    options.Size,
+                    options.Color.R,
+                    options.Color.G,
+                    options.Color.B,
+                    rect.HasValue ? 1 : 0,
+                    rect?.X ?? 0f,
+                    rect?.Y ?? 0f,
+                    rect?.Width ?? 0f,
+                    rect?.Height ?? 0f));
+            }
+        }
+
+        internal void AddStamp(int pageIndex, string typeName)
+        {
+            CheckDisposed();
+
+            fixed (byte* pTypeName = Utf8(typeName))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_stamp(_state, pageIndex, pTypeName));
+            }
+        }
+
+        internal void AddStampAt(int pageIndex, PdfRect rect, string typeName)
+        {
+            CheckDisposed();
+
+            fixed (byte* pTypeName = Utf8(typeName))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_stamp_at(
+                    _state, pageIndex, rect.X, rect.Y, rect.Width, rect.Height, pTypeName));
+            }
+        }
+
+        internal void AddFootnote(int pageIndex, string referenceMark, string noteText)
+        {
+            CheckDisposed();
+
+            fixed (byte* pReferenceMark = Utf8(referenceMark))
+            fixed (byte* pNoteText = Utf8(noteText))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_footnote(
+                    _state, pageIndex, pReferenceMark, pNoteText));
+            }
+        }
+
         private PdfPageBuilder AddPageCore(int kind, float width, float height)
         {
             ThrowIfFailed(NativeMethods.pdf_builder_add_page(_state, kind, width, height));

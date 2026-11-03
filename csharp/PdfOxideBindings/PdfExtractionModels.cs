@@ -616,4 +616,69 @@ namespace PdfOxide
         /// </summary>
         public PdfXmpMetadata? Xmp { get; init; }
     }
+
+    /// <summary>
+    /// An annotation read from a PDF page.
+    /// </summary>
+    public sealed record PdfAnnotationInfo
+    {
+        /// <summary>
+        /// Gets the PDF annotation object type, typically <c>Annot</c>.
+        /// </summary>
+        public string Type { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets the annotation subtype, such as <c>Link</c>, <c>Highlight</c>, or <c>Text</c>.
+        /// </summary>
+        public string Subtype { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets the annotation contents, when present.
+        /// </summary>
+        public string? Contents { get; init; }
+
+        /// <summary>
+        /// Gets the annotation author, when present.
+        /// </summary>
+        public string? Author { get; init; }
+
+        /// <summary>
+        /// Gets the annotation rectangle in points.
+        /// </summary>
+        public PdfRect Rect { get; init; }
+
+        /// <summary>
+        /// Gets the annotation color, when present.
+        /// </summary>
+        public PdfColor? Color { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the annotation is hidden.
+        /// </summary>
+        public bool IsHidden { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the annotation is printable.
+        /// </summary>
+        public bool IsPrintable { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the annotation is read-only.
+        /// </summary>
+        public bool IsReadOnly { get; init; }
+
+        /// <summary>
+        /// Gets the URI for link annotations, when present.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Design",
+            "CA1056:URI-like properties should not be strings",
+            Justification = "Matches the native string-based annotation API.")]
+        public string? Uri { get; init; }
+
+        /// <summary>
+        /// Gets the icon name for text annotations, when present.
+        /// </summary>
+        public string? IconName { get; init; }
+    }
 }

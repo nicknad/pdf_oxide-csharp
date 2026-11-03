@@ -33,9 +33,11 @@ use pdf_oxide::geometry::Rect;
 use pdf_oxide::layout::{Color, TextChar, TextLine, TextSpan, Word};
 use pdf_oxide::outline::{Destination, OutlineItem};
 use pdf_oxide::writer::{
-    DocumentBuilder as PdfWriterBuilder, FluentPageBuilder, ListStyle, PageSize, Table, TableCell,
-    TableRow, TableStyle, TextRun, TextRunStyle,
+    DocumentBuilder as PdfWriterBuilder, FluentPageBuilder, LinkAnnotation, ListStyle, PageSize,
+    StampType, Table, TableCell, TableRow, TableStyle, TextAnnotation, TextMarkupAnnotation,
+    TextRun, TextRunStyle, WatermarkAnnotation,
 };
+use pdf_oxide::{TextAnnotationIcon, TextMarkupType};
 use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -152,6 +154,79 @@ enum BuilderOp {
         width: f32,
         height: f32,
         alt: Option<String>,
+    },
+    LinkUrl(String),
+    LinkPage(usize),
+    LinkNamed(String),
+    LinkJavaScript(String),
+    LinkRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        url: String,
+    },
+    TextMarkup {
+        kind: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    TextMarkupRect {
+        kind: i32,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+    },
+    StickyNote {
+        x: Option<f32>,
+        y: Option<f32>,
+        text: String,
+        icon: i32,
+    },
+    FreeText {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        text: String,
+        font: Option<String>,
+        size: Option<f32>,
+    },
+    Watermark {
+        text: String,
+    },
+    WatermarkPreset {
+        kind: i32,
+    },
+    WatermarkCustom {
+        text: String,
+        opacity: f32,
+        rotation: f32,
+        font: String,
+        size: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        rect: Option<(f32, f32, f32, f32)>,
+    },
+    Stamp {
+        type_name: String,
+    },
+    StampAt {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        type_name: String,
+    },
+    Footnote {
+        ref_mark: String,
+        note_text: String,
     },
 }
 
@@ -330,6 +405,145 @@ fn render_op<'a>(
                 Some(alt_text) => page.image_from_bytes_with_alt(data, rect, alt_text)?,
                 None => page.image_from_bytes(data, rect)?,
             };
+        }
+        BuilderOp::LinkUrl(url) => {
+            page = page.link_url(url);
+        }
+        BuilderOp::LinkPage(target_page) => {
+            page = page.link_page(*target_page);
+        }
+        BuilderOp::LinkNamed(destination) => {
+            page = page.link_named(destination);
+        }
+        BuilderOp::LinkJavaScript(script) => {
+            page = page.link_javascript(script);
+        }
+        BuilderOp::LinkRect {
+            x,
+            y,
+            width,
+            height,
+            url,
+        } => {
+            let link = LinkAnnotation::uri(Rect::new(*x, *y, *width, *height), url);
+            page = page.add_annotation(link);
+        }
+        BuilderOp::TextMarkup { kind, r, g, b } => {
+            let color = (*r, *g, *b);
+            page = match text_markup_type_from_code(*kind)? {
+                TextMarkupType::Highlight => page.highlight(color),
+                TextMarkupType::Underline => page.underline(color),
+                TextMarkupType::StrikeOut => page.strikeout(color),
+                TextMarkupType::Squiggly => page.squiggly(color),
+            };
+        }
+        BuilderOp::TextMarkupRect {
+            kind,
+            x,
+            y,
+            width,
+            height,
+            r,
+            g,
+            b,
+        } => {
+            let markup = TextMarkupAnnotation::from_rect(
+                text_markup_type_from_code(*kind)?,
+                Rect::new(*x, *y, *width, *height),
+            )
+            .with_color(*r, *g, *b);
+            page = page.add_annotation(markup);
+        }
+        BuilderOp::StickyNote { x, y, text, icon } => {
+            let icon = text_annotation_icon_from_code(*icon)?;
+            page = match (x, y) {
+                (Some(x), Some(y)) => {
+                    let note = TextAnnotation::new(Rect::new(*x, *y, 24.0, 24.0), text)
+                        .with_icon(icon);
+                    page.add_annotation(note)
+                }
+                _ => page.sticky_note_with_icon(text, icon),
+            };
+        }
+        BuilderOp::FreeText {
+            x,
+            y,
+            width,
+            height,
+            text,
+            font,
+            size,
+        } => {
+            let rect = Rect::new(*x, *y, *width, *height);
+            page = match font {
+                Some(font) if !font.is_empty() => {
+                    page.freetext_styled(rect, text, font, size.unwrap_or(12.0))
+                }
+                _ => page.freetext(rect, text),
+            };
+        }
+        BuilderOp::Watermark { text } => {
+            page = page.watermark(text);
+        }
+        BuilderOp::WatermarkPreset { kind } => {
+            page = match kind {
+                0 => page.watermark_confidential(),
+                1 => page.watermark_draft(),
+                other => {
+                    return Err(IoError::new(
+                        ErrorKind::InvalidInput,
+                        format!("unknown watermark preset code: {other}"),
+                    )
+                    .into());
+                }
+            };
+        }
+        BuilderOp::WatermarkCustom {
+            text,
+            opacity,
+            rotation,
+            font,
+            size,
+            r,
+            g,
+            b,
+            rect,
+        } => {
+            let mut watermark = WatermarkAnnotation::new(text)
+                .with_opacity(*opacity)
+                .with_rotation(*rotation)
+                .with_font(font.as_str(), *size)
+                .with_color(*r, *g, *b);
+            if let Some((x, y, width, height)) = rect {
+                watermark = watermark.with_rect(Rect::new(*x, *y, *width, *height));
+            }
+            page = page.watermark_custom(watermark);
+        }
+        BuilderOp::Stamp { type_name } => {
+            let stamp_type = if type_name.is_empty() {
+                StampType::Draft
+            } else {
+                parse_stamp_type(type_name)
+            };
+            page = page.stamp(stamp_type);
+        }
+        BuilderOp::StampAt {
+            x,
+            y,
+            width,
+            height,
+            type_name,
+        } => {
+            page = page.stamp_at(
+                Rect::new(*x, *y, *width, *height),
+                parse_stamp_type(type_name),
+            );
+        }
+        BuilderOp::Footnote {
+            ref_mark,
+            note_text,
+        } => {
+            page = page.footnote(ref_mark, note_text);
         }
     }
 
@@ -1449,6 +1663,74 @@ fn validate_rect(
     Ok(())
 }
 
+fn text_markup_type_from_code(kind: i32) -> Result<TextMarkupType, Box<dyn std::error::Error>> {
+    match kind {
+        0 => Ok(TextMarkupType::Highlight),
+        1 => Ok(TextMarkupType::Underline),
+        2 => Ok(TextMarkupType::StrikeOut),
+        3 => Ok(TextMarkupType::Squiggly),
+        other => Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("unknown text markup kind: {other}"),
+        )
+        .into()),
+    }
+}
+
+fn text_annotation_icon_from_code(
+    icon: i32,
+) -> Result<TextAnnotationIcon, Box<dyn std::error::Error>> {
+    match icon {
+        0 => Ok(TextAnnotationIcon::Comment),
+        1 => Ok(TextAnnotationIcon::Key),
+        2 => Ok(TextAnnotationIcon::Note),
+        3 => Ok(TextAnnotationIcon::Help),
+        4 => Ok(TextAnnotationIcon::NewParagraph),
+        5 => Ok(TextAnnotationIcon::Paragraph),
+        6 => Ok(TextAnnotationIcon::Insert),
+        other => Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("unknown text annotation icon code: {other}"),
+        )
+        .into()),
+    }
+}
+
+fn parse_stamp_type(name: &str) -> StampType {
+    match name {
+        "Approved" => StampType::Approved,
+        "Experimental" => StampType::Experimental,
+        "NotApproved" => StampType::NotApproved,
+        "AsIs" => StampType::AsIs,
+        "Expired" => StampType::Expired,
+        "NotForPublicRelease" => StampType::NotForPublicRelease,
+        "Confidential" => StampType::Confidential,
+        "Final" => StampType::Final,
+        "Sold" => StampType::Sold,
+        "Departmental" => StampType::Departmental,
+        "ForComment" => StampType::ForComment,
+        "TopSecret" => StampType::TopSecret,
+        "Draft" => StampType::Draft,
+        "ForPublicRelease" => StampType::ForPublicRelease,
+        other => StampType::Custom(other.to_string()),
+    }
+}
+
+fn validate_color(
+    r: f32,
+    g: f32,
+    b: f32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !r.is_finite() || !g.is_finite() || !b.is_finite() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "color components must be finite",
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn list_style_from_code(style: i32) -> Result<ListStyle, Box<dyn std::error::Error>> {
     match style {
         0 => Ok(ListStyle::Decimal),
@@ -1983,6 +2265,423 @@ pub unsafe extern "C" fn pdf_builder_add_image_bytes(
             width,
             height,
             alt,
+        });
+        Ok(())
+    })
+}
+
+/// Add a URL link annotation to the most recent text on the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_link_url(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    url: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let url = c_string_to_string(url, "url")?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::LinkUrl(url));
+        Ok(())
+    })
+}
+
+/// Add an internal page link annotation to the most recent text on the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_link_page(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    target_page: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let target_page = page_index_from_i32(target_page)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::LinkPage(target_page));
+        Ok(())
+    })
+}
+
+/// Add a named destination link annotation to the most recent text on the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_link_named(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    destination: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let destination = c_string_to_string(destination, "destination")?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::LinkNamed(destination));
+        Ok(())
+    })
+}
+
+/// Add a JavaScript action link annotation to the most recent text on the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_link_javascript(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    script: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let script = c_string_to_string(script, "script")?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::LinkJavaScript(script));
+        Ok(())
+    })
+}
+
+/// Add a URL link annotation over a rectangle.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_link_rect(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    url: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        let url = c_string_to_string(url, "url")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::LinkRect {
+            x,
+            y,
+            width,
+            height,
+            url,
+        });
+        Ok(())
+    })
+}
+
+/// Add a text markup annotation to the most recent text on the page.
+///
+/// `kind` is 0=Highlight, 1=Underline, 2=StrikeOut, 3=Squiggly.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_text_markup(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    kind: i32,
+    r: f32,
+    g: f32,
+    b: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        text_markup_type_from_code(kind)?;
+        validate_color(r, g, b)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::TextMarkup { kind, r, g, b });
+        Ok(())
+    })
+}
+
+/// Add a text markup annotation over a rectangle.
+///
+/// `kind` is 0=Highlight, 1=Underline, 2=StrikeOut, 3=Squiggly.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_text_markup_rect(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    kind: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        text_markup_type_from_code(kind)?;
+        validate_rect(x, y, width, height)?;
+        validate_color(r, g, b)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::TextMarkupRect {
+            kind,
+            x,
+            y,
+            width,
+            height,
+            r,
+            g,
+            b,
+        });
+        Ok(())
+    })
+}
+
+/// Add a sticky note annotation at the current cursor position.
+///
+/// `icon` is 0=Comment, 1=Key, 2=Note, 3=Help, 4=NewParagraph, 5=Paragraph,
+/// 6=Insert.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_sticky_note(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    text: *const c_char,
+    icon: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        text_annotation_icon_from_code(icon)?;
+        let text = c_string_to_string(text, "text")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::StickyNote {
+            x: None,
+            y: None,
+            text,
+            icon,
+        });
+        Ok(())
+    })
+}
+
+/// Add a sticky note annotation at an absolute position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_sticky_note_at(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    text: *const c_char,
+    icon: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "sticky note position must be finite").into(),
+            );
+        }
+        text_annotation_icon_from_code(icon)?;
+        let text = c_string_to_string(text, "text")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::StickyNote {
+            x: Some(x),
+            y: Some(y),
+            text,
+            icon,
+        });
+        Ok(())
+    })
+}
+
+/// Add a free text annotation over a rectangle. `font` may be null.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_freetext(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    text: *const c_char,
+    font: *const c_char,
+    size: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        let text = c_string_to_string(text, "text")?;
+        let font = optional_string(font, "font")?;
+        let size = (size.is_finite() && size > 0.0).then_some(size);
+        state.page_mut(page_index)?.ops.push(BuilderOp::FreeText {
+            x,
+            y,
+            width,
+            height,
+            text,
+            font,
+            size,
+        });
+        Ok(())
+    })
+}
+
+/// Add a text watermark centered on the page.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_watermark(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    text: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let text = c_string_to_string(text, "text")?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::Watermark { text });
+        Ok(())
+    })
+}
+
+/// Add a preset watermark. `kind` is 0=Confidential, 1=Draft.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_watermark_preset(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    kind: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if kind != 0 && kind != 1 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!("unknown watermark preset code: {kind}"),
+            )
+            .into());
+        }
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::WatermarkPreset { kind });
+        Ok(())
+    })
+}
+
+/// Add a fully custom watermark. When `has_rect` is non-zero the rectangle
+/// values are used; otherwise the watermark uses the writer default rectangle.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_watermark_custom(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    text: *const c_char,
+    opacity: f32,
+    rotation: f32,
+    font: *const c_char,
+    size: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    has_rect: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let text = c_string_to_string(text, "text")?;
+        let font = c_string_to_string(font, "font")?;
+        if !opacity.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "watermark opacity must be finite").into(),
+            );
+        }
+        if !rotation.is_finite() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "watermark rotation must be finite").into(),
+            );
+        }
+        if !size.is_finite() || size <= 0.0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "watermark font size must be a positive finite number",
+            )
+            .into());
+        }
+        validate_color(r, g, b)?;
+        let rect = if has_rect != 0 {
+            validate_rect(x, y, width, height)?;
+            Some((x, y, width, height))
+        } else {
+            None
+        };
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::WatermarkCustom {
+                text,
+                opacity,
+                rotation,
+                font,
+                size,
+                r,
+                g,
+                b,
+                rect,
+            });
+        Ok(())
+    })
+}
+
+/// Add a stamp annotation at the current cursor position.
+///
+/// Pass an empty string to use the default draft stamp.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_stamp(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    type_name: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let type_name = c_string_to_string(type_name, "type_name")?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::Stamp { type_name });
+        Ok(())
+    })
+}
+
+/// Add a stamp annotation over a rectangle.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_stamp_at(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    type_name: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        validate_rect(x, y, width, height)?;
+        let type_name = c_string_to_string(type_name, "type_name")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::StampAt {
+            x,
+            y,
+            width,
+            height,
+            type_name,
+        });
+        Ok(())
+    })
+}
+
+/// Add a footnote at the current cursor position.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_footnote(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    ref_mark: *const c_char,
+    note_text: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let ref_mark = c_string_to_string(ref_mark, "reference mark")?;
+        let note_text = c_string_to_string(note_text, "note text")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::Footnote {
+            ref_mark,
+            note_text,
         });
         Ok(())
     })

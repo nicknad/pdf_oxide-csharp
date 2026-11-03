@@ -62,6 +62,147 @@ namespace PdfOxide
     }
 
     /// <summary>
+    /// Text markup annotation types.
+    /// </summary>
+    public enum PdfTextMarkupType
+    {
+        /// <summary>Highlight the text.</summary>
+        Highlight = 0,
+        /// <summary>Underline the text.</summary>
+        Underline = 1,
+        /// <summary>Strike through the text.</summary>
+        StrikeOut = 2,
+        /// <summary>Add a squiggly underline.</summary>
+        Squiggly = 3,
+    }
+
+    /// <summary>
+    /// Icons used for sticky note annotations.
+    /// </summary>
+    public enum PdfTextAnnotationIcon
+    {
+        /// <summary>Comment icon.</summary>
+        Comment = 0,
+        /// <summary>Key icon.</summary>
+        Key = 1,
+        /// <summary>Note icon.</summary>
+        Note = 2,
+        /// <summary>Help icon.</summary>
+        Help = 3,
+        /// <summary>New paragraph icon.</summary>
+        NewParagraph = 4,
+        /// <summary>Paragraph icon.</summary>
+        Paragraph = 5,
+        /// <summary>Insert icon.</summary>
+        Insert = 6,
+    }
+
+    /// <summary>
+    /// Standard rubber stamp annotation types.
+    /// </summary>
+    public enum PdfStampType
+    {
+        /// <summary>Approved stamp.</summary>
+        Approved,
+        /// <summary>Experimental stamp.</summary>
+        Experimental,
+        /// <summary>Not approved stamp.</summary>
+        NotApproved,
+        /// <summary>As-is stamp.</summary>
+        AsIs,
+        /// <summary>Expired stamp.</summary>
+        Expired,
+        /// <summary>Not for public release stamp.</summary>
+        NotForPublicRelease,
+        /// <summary>Confidential stamp.</summary>
+        Confidential,
+        /// <summary>Final stamp.</summary>
+        Final,
+        /// <summary>Sold stamp.</summary>
+        Sold,
+        /// <summary>Departmental stamp.</summary>
+        Departmental,
+        /// <summary>For comment stamp.</summary>
+        ForComment,
+        /// <summary>Top secret stamp.</summary>
+        TopSecret,
+        /// <summary>Draft stamp.</summary>
+        Draft,
+        /// <summary>For public release stamp.</summary>
+        ForPublicRelease,
+        /// <summary>Custom stamp name.</summary>
+        Custom,
+    }
+
+    internal static class PdfStampTypeExtensions
+    {
+        internal static string ToPdfName(this PdfStampType type)
+        {
+            return type switch
+            {
+                PdfStampType.Approved => "Approved",
+                PdfStampType.Experimental => "Experimental",
+                PdfStampType.NotApproved => "NotApproved",
+                PdfStampType.AsIs => "AsIs",
+                PdfStampType.Expired => "Expired",
+                PdfStampType.NotForPublicRelease => "NotForPublicRelease",
+                PdfStampType.Confidential => "Confidential",
+                PdfStampType.Final => "Final",
+                PdfStampType.Sold => "Sold",
+                PdfStampType.Departmental => "Departmental",
+                PdfStampType.ForComment => "ForComment",
+                PdfStampType.TopSecret => "TopSecret",
+                PdfStampType.Draft => "Draft",
+                PdfStampType.ForPublicRelease => "ForPublicRelease",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(type), type, "Custom stamps require an explicit name."),
+            };
+        }
+    }
+
+    /// <summary>
+    /// Options for a custom watermark annotation.
+    /// </summary>
+    public sealed record PdfWatermarkOptions
+    {
+        /// <summary>
+        /// Gets the watermark text.
+        /// </summary>
+        public required string Text { get; init; }
+
+        /// <summary>
+        /// Gets the watermark opacity from 0 to 1. Defaults to 0.3.
+        /// </summary>
+        public float Opacity { get; init; } = 0.3f;
+
+        /// <summary>
+        /// Gets the rotation in degrees. Defaults to 45.
+        /// </summary>
+        public float Rotation { get; init; } = 45f;
+
+        /// <summary>
+        /// Gets the font name. Defaults to Helvetica.
+        /// </summary>
+        public string Font { get; init; } = "Helvetica";
+
+        /// <summary>
+        /// Gets the font size in points. Defaults to 72.
+        /// </summary>
+        public float Size { get; init; } = 72f;
+
+        /// <summary>
+        /// Gets the watermark color. Defaults to medium gray.
+        /// </summary>
+        public PdfColor Color { get; init; } = new(0.5f, 0.5f, 0.5f);
+
+        /// <summary>
+        /// Gets the optional bounding rectangle in points. When omitted, the
+        /// writer uses a default rectangle sized to the page.
+        /// </summary>
+        public PdfRect? Rect { get; init; }
+    }
+
+    /// <summary>
     /// An RGB color with components in the range 0 to 1.
     /// </summary>
     /// <param name="R">Red component.</param>
