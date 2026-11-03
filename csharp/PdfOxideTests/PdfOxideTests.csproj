@@ -22,7 +22,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PdfOxideBindings\PdfOxideBindings.csproj" />
+    <!-- Build ordering only; the host is launched as a separate process. -->
+    <ProjectReference Include="..\FfiCrashHost\FfiCrashHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyFfiCrashHost" AfterTargets="Build">
+    <ItemGroup>
+      <_FfiCrashHostFiles Include="$(MSBuildThisFileDirectory)../FfiCrashHost/bin/$(Configuration)/$(TargetFramework)/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_FfiCrashHostFiles)"
+          DestinationFolder="$(OutDir)ffi-crash-host/%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <!-- Project references do not transitively copy the library's native Content items. -->

@@ -42,6 +42,9 @@ use std::ffi::{CStr, CString};
 use std::io::{Error as IoError, ErrorKind};
 use std::os::raw::c_char;
 
+#[cfg(feature = "ffi-test-hooks")]
+pub mod test_hooks;
+
 // Thread-local storage for error messages, retained so callers can retrieve the
 // failure detail after an FFI function returns.
 thread_local! {

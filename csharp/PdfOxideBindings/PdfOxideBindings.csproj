@@ -20,6 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The crash host and tests call raw native entry points on purpose. -->
+    <InternalsVisibleTo Include="FfiCrashHost" />
+    <InternalsVisibleTo Include="PdfOxideTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="README.md" />
 
     <!-- Ship each native binary as a RID-specific NuGet native asset. -->

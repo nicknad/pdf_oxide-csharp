@@ -1,5 +1,7 @@
 #rust
 /rust/target/
+/rust/fuzz/target/
+/rust/fuzz/artifacts/
 **/*.rs.bk
 *.pdb
 

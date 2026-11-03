@@ -5,7 +5,11 @@ edition = "2024"
 
 [lib]
 name = "pdfoxide_bindings"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Enables test-only FFI hooks (see src/test_hooks.rs). Never enable in a shipped build.
+ffi-test-hooks = []
 
 [dependencies]
 base64 = "0.22"
