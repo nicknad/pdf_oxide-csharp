@@ -51,6 +51,16 @@ surface.
 Groups K-M are design-only so far; they are the next implementation targets. See
 [I-crash-harness.md](I-crash-harness.md) for the isolation contract and exit codes.
 
+## Re-evaluation checklist (when trunk advances)
+
+1. Fetch and diff against the last recorded revision:
+   `git log --oneline <revision>..main -- rust/src/lib.rs csharp/PdfOxideBindings dotnet/PdfOxideBindings.cs`
+2. Enumerate new or changed `pub extern "C"` exports and new `DllImport` declarations.
+3. Re-run `NativeAbiTests` (A1) so new symbols are covered automatically.
+4. Add rows to the relevant group: new handles usually belong in B/G/I, new builders in C/E/M.
+5. Record the revision and commits under "Catalogue revisions".
+6. Validate with `dotnet test` and `cargo check --manifest-path rust/fuzz/Cargo.toml`.
+
 ## Catalogue revisions
 
 - 2026-11-03: initial A-J catalogue for the `c55f221` FFI surface.
