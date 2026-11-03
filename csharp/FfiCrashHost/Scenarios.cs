@@ -46,6 +46,13 @@ internal static class Scenarios
         ["editor-from-bytes-validation"] = _ => EditorFromBytesValidation(),
         ["editor-double-free"] = _ => EditorDoubleFree(),
         ["editor-from-bytes-overflow"] = _ => EditorFromBytesOverflow(),
+        ["editor-page-edit-extremes"] = _ => EditorPageEditExtremes(),
+        ["editor-merge-extract"] = _ => EditorMergeExtract(),
+        ["editor-encrypt-roundtrip"] = _ => EditorEncryptRoundtrip(),
+        ["certificate-invalid-input"] = _ => CertificateInvalidInput(),
+        ["signature-list-empty"] = _ => SignatureListEmpty(),
+        ["certificate-null-input"] = _ => CertificateNullInput(),
+        ["signature-null-handle"] = _ => SignatureNullHandle(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -712,6 +719,346 @@ internal static class Scenarios
         finally
         {
             TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorPageEditExtremes()
+    {
+        string path = TempPath("editor-pages");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                var failures = new List<string>();
+                void Expect(string name, int actual, int expected)
+                {
+                    if (actual != expected)
+                    {
+                        failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                            + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+
+                int error = 0;
+                Expect("delete-negative", UpstreamNativeMethods.document_editor_delete_page(editor, -1, &error), -1);
+                Expect("delete-out-of-range", UpstreamNativeMethods.document_editor_delete_page(editor, 1, &error), -1);
+                Expect("move-out-of-range", UpstreamNativeMethods.document_editor_move_page(editor, 0, 1, &error), -1);
+                Expect("rotate-invalid-page", UpstreamNativeMethods.document_editor_set_page_rotation(editor, 1, 90, &error), -1);
+                Expect("rotate-valid", UpstreamNativeMethods.document_editor_set_page_rotation(editor, 0, 90, &error), 0);
+                Expect("crop-invalid-page", UpstreamNativeMethods.document_editor_set_page_crop_box(
+                    editor, 1, 0, 0, 100, 100, &error), -1);
+                Expect("count-still", UpstreamNativeMethods.document_editor_get_page_count(editor, &error), 1);
+
+                nuint length = 0;
+                byte* bytes = UpstreamNativeMethods.document_editor_save_to_bytes(editor, &length, &error);
+                if (bytes == null || length == 0)
+                {
+                    failures.Add("save-to-bytes");
+                }
+                if (bytes != null)
+                {
+                    UpstreamNativeMethods.free_bytes(bytes);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("editor page edits reject invalid indices")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorMergeExtract()
+    {
+        string path = TempPath("editor-merge");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                var failures = new List<string>();
+                int error = 0;
+
+                byte[] missing = Utf8(path + ".missing");
+                fixed (byte* pMissing = missing)
+                {
+                    if (UpstreamNativeMethods.document_editor_merge_from(editor, pMissing, &error) != -1)
+                    {
+                        failures.Add("merge-missing");
+                    }
+                }
+
+                int* pages = stackalloc int[1];
+                pages[0] = 0;
+                nuint length = 0;
+                byte* extracted = UpstreamNativeMethods.document_editor_extract_pages_to_bytes(
+                    editor, pages, 1, &length, &error);
+                if (extracted == null || length == 0)
+                {
+                    failures.Add("extract-page-0");
+                }
+                if (extracted != null)
+                {
+                    UpstreamNativeMethods.free_bytes(extracted);
+                }
+
+                pages[0] = 5;
+                length = 0;
+                byte* outOfRange = UpstreamNativeMethods.document_editor_extract_pages_to_bytes(
+                    editor, pages, 1, &length, &error);
+                if (outOfRange != null)
+                {
+                    failures.Add("extract-out-of-range-succeeded");
+                    UpstreamNativeMethods.free_bytes(outOfRange);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("editor merge/extract handles invalid inputs")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorEncryptRoundtrip()
+    {
+        string path = TempPath("editor-plain");
+        string encryptedPath = TempPath("editor-encrypted");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                byte[] outputPath = Utf8(encryptedPath);
+                byte[] user = Utf8("user-pass");
+                byte[] owner = Utf8("owner-pass");
+                fixed (byte* pOutput = outputPath)
+                fixed (byte* pUser = user)
+                fixed (byte* pOwner = owner)
+                {
+                    int error = 0;
+                    int save = UpstreamNativeMethods.document_editor_save_encrypted(
+                        editor, pOutput, pUser, pOwner, &error);
+                    if (save != 0)
+                    {
+                        return ScenarioResult.Fail($"encrypted save failed, rc={save}, errorCode={error}");
+                    }
+                }
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+
+            if (!TryOpenEditor(encryptedPath, "user-pass", out IntPtr encrypted, out int correctError))
+            {
+                return ScenarioResult.Fail($"encrypted reopen failed, errorCode={correctError}");
+            }
+            UpstreamNativeMethods.document_editor_free(encrypted);
+
+            if (TryOpenEditor(encryptedPath, "wrong-pass", out IntPtr wrong, out int wrongError))
+            {
+                UpstreamNativeMethods.document_editor_free(wrong);
+                return ScenarioResult.Fail($"wrong password unexpectedly opened, errorCode={wrongError}");
+            }
+
+            return ScenarioResult.Ok("encrypted save and password round-trip verified");
+        }
+        finally
+        {
+            TryDelete(path);
+            TryDelete(encryptedPath);
+        }
+    }
+
+    private static unsafe ScenarioResult CertificateInvalidInput()
+    {
+        var failures = new List<string>();
+        var observations = new List<string>();
+        byte[] password = Utf8(string.Empty);
+
+        byte[] garbage = new byte[32];
+        fixed (byte* pGarbage = garbage)
+        fixed (byte* pPassword = password)
+        {
+            int error = 42;
+            IntPtr handle = UpstreamNativeMethods.pdf_certificate_load_from_bytes(
+                pGarbage, garbage.Length, pPassword, &error);
+            observations.Add("garbage-error=" + error.ToString(CultureInfo.InvariantCulture));
+            if (handle != IntPtr.Zero)
+            {
+                failures.Add("garbage-handle");
+                UpstreamNativeMethods.pdf_certificate_free(handle);
+            }
+            if (error == 0)
+            {
+                failures.Add("garbage-error=0");
+            }
+
+            error = 42;
+            IntPtr empty = UpstreamNativeMethods.pdf_certificate_load_from_bytes(
+                pGarbage, 0, pPassword, &error);
+            observations.Add("empty-error=" + error.ToString(CultureInfo.InvariantCulture));
+            if (empty != IntPtr.Zero)
+            {
+                failures.Add("empty-handle");
+                UpstreamNativeMethods.pdf_certificate_free(empty);
+            }
+            if (error == 0)
+            {
+                failures.Add("empty-error=0");
+            }
+        }
+
+        UpstreamNativeMethods.pdf_certificate_free(IntPtr.Zero);
+        return failures.Count == 0
+            ? ScenarioResult.Ok("certificate loaders reject invalid input: "
+                + string.Join(", ", observations))
+            : ScenarioResult.Fail(string.Join(", ", failures));
+    }
+
+    private static unsafe ScenarioResult SignatureListEmpty()
+    {
+        string path = TempPath("signature-list");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            fixed (byte* pData = bytes)
+            {
+                var failures = new List<string>();
+                int error = 0;
+                IntPtr document = UpstreamNativeMethods.pdf_document_open_from_bytes(
+                    pData, (nuint)bytes.Length, &error);
+                if (document == IntPtr.Zero)
+                {
+                    return ScenarioResult.Fail($"document open failed, errorCode={error}");
+                }
+
+                try
+                {
+                    int count = UpstreamNativeMethods.pdf_document_get_signature_count(document, &error);
+                    if (count != 0)
+                    {
+                        failures.Add("count=" + count.ToString(CultureInfo.InvariantCulture));
+                    }
+
+                    IntPtr signature = UpstreamNativeMethods.pdf_document_get_signature(document, 0, &error);
+                    if (signature != IntPtr.Zero)
+                    {
+                        failures.Add("signature-0-not-null");
+                        UpstreamNativeMethods.pdf_signature_free(signature);
+                    }
+
+                    IntPtr negative = UpstreamNativeMethods.pdf_document_get_signature(document, -1, &error);
+                    if (negative != IntPtr.Zero)
+                    {
+                        failures.Add("signature-negative-not-null");
+                        UpstreamNativeMethods.pdf_signature_free(negative);
+                    }
+                }
+                finally
+                {
+                    UpstreamNativeMethods.pdf_document_free(document);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("unsigned document reports no signatures")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult CertificateNullInput()
+    {
+        int error = 0;
+        IntPtr handle = UpstreamNativeMethods.pdf_certificate_load_from_bytes(null, 0, null, &error);
+        if (handle != IntPtr.Zero)
+        {
+            UpstreamNativeMethods.pdf_certificate_free(handle);
+        }
+
+        return ScenarioResult.Ok($"null certificate input returned {(handle == IntPtr.Zero ? "null" : "handle")}");
+    }
+
+    private static unsafe ScenarioResult SignatureNullHandle()
+    {
+        byte[] data = Utf8("not a pdf");
+        fixed (byte* pData = data)
+        {
+            int error = 0;
+            int result = UpstreamNativeMethods.pdf_signature_verify_detached(
+                IntPtr.Zero, pData, (nuint)data.Length, &error);
+            return ScenarioResult.Ok($"null signature verify returned {result}");
+        }
+    }
+
+    private static unsafe bool TryOpenEditor(
+        string path,
+        string password,
+        out IntPtr handle,
+        out int errorCode)
+    {
+        byte[] pathBytes = Utf8(path);
+        byte[] passwordBytes = Utf8(password);
+        fixed (byte* pPath = pathBytes)
+        fixed (byte* pPassword = passwordBytes)
+        {
+            int code = 0;
+            handle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                pPath, pPassword, &code);
+            errorCode = code;
+            return handle != IntPtr.Zero && code == 0;
         }
     }
 

@@ -108,6 +108,46 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestEditorPageEditExtremes()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-page-edit-extremes");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestEditorMergeExtract()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-merge-extract");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestEditorEncryptRoundtrip()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-encrypt-roundtrip");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestCertificateInvalidInput()
+    {
+        CrashHostResult result = CrashHostRunner.Run("certificate-invalid-input");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestSignatureListEmpty()
+    {
+        CrashHostResult result = CrashHostRunner.Run("signature-list-empty");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestStreamingStateMachine()
     {
         CrashHostResult result = CrashHostRunner.Run("streaming-state-machine");
@@ -169,6 +209,8 @@ public class FfiCrashHostTests
     [InlineData("rich-short-colors")]
     [InlineData("editor-double-free")]
     [InlineData("editor-from-bytes-overflow")]
+    [InlineData("certificate-null-input")]
+    [InlineData("signature-null-handle")]
     public void TestMemorySafetyScenarioTerminatesWithoutManagedFailure(string scenario)
     {
         CrashHostResult result = CrashHostRunner.Run(scenario);

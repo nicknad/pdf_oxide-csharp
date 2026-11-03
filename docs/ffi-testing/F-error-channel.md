@@ -13,3 +13,4 @@
 | F9 | Mixed error channels | Force shim TLS failures and upstream `error_code` failures; assert wrappers surface both | `PdfConverter` mixes `GetLastError()` and `ThrowIfError` (`PdfConverter.cs:376-392`, `:506-513`) |
 | F10 | Stale TLS after editor success | Fail a shim call, then succeed an editor open (`error_code == 0`), then read TLS | TLS is never cleared on success (`rust/src/lib.rs:4529-4533`) |
 | F11 | Silent null on upstream failure | Force an upstream accessor to return null with a nonzero error code | `PdfSigning` can map a failed accessor to a null field without throwing (`PdfSigning.cs:399-423`) |
+| F12 | Upstream codes are not `-1` | Load an invalid certificate and observe the `error_code` values (observed `1` and `3`) | Treat any nonzero code as failure; comparing only to `-1` misclassifies upstream errors |
