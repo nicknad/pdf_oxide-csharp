@@ -13,8 +13,10 @@ memory-safety scenarios must run behind a process boundary.
    - expected graceful case -> exit `0` and the expected `result=error` payload;
    - memory-safety case -> non-zero exit or a specific signal/exception code, with
      an optional saved dump.
-3. A native C driver (`dlopen`/`LoadLibrary`) covers scenarios that C# cannot
-   express safely: double free, out-of-bounds length, and short color arrays.
+3. A native C driver (`tools/ffi-abi-driver`) loads the cdylib with
+   `dlopen`/`LoadLibrary`, resolves symbols through `dlsym`/`GetProcAddress`, and
+   runs `symbols`, `smoke`, and `null-path` scenarios. The ASAN workflow builds it
+   with `-fsanitize=address` against a `-Zsanitizer=address` cdylib.
 4. Run the whole suite under ASAN+UBSAN (Linux, Rust nightly), TSan for concurrency,
    and Windows PageHeap / Application Verifier.
 

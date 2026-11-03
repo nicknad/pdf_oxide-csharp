@@ -49,6 +49,9 @@ surface.
 - `csharp/PdfOxideTests/NativeAbiTests.cs` - scenario A1: reflects over every
   `DllImport` entry point and verifies the shipped native library exports it.
 - `rust/fuzz` - `cargo fuzz` targets for the document API and the builder API.
+- `tools/ffi-abi-driver` - native C loader that verifies the real C ABI with
+  `dlopen`/`LoadLibrary`; CI runs `symbols` and `smoke`, and the sanitizer
+  workflow runs it under ASAN.
 
 Groups K-N are largely design-only; `FfiCrashHost` now covers editor handle
 contracts (K1-K3), streaming state (N1-N3), and `add_page_like` extremes (N8). See

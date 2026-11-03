@@ -1,0 +1,55 @@
+name: Sanitizers
+
+on:
+  schedule:
+    # Nightly at 04:00 UTC.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan:
+    name: ASAN ABI driver
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build instrumented native library
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
+          CARGO_TARGET_DIR: rust/target/asan
+        run: cargo +nightly build --manifest-path rust/Cargo.toml
+
+      - name: Build ABI driver with ASAN
+        run: >
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address
+          tools/ffi-abi-driver/ffi_abi_driver.c -o ffi_abi_driver -ldl
+
+      - name: Run symbols scenario
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so symbols
+
+      - name: Run smoke scenario
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so smoke
+
+      - name: Run null-path scenario
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so null-path

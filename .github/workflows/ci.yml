@@ -48,6 +48,13 @@ jobs:
               runtimes/linux-x64/native/libpdfoxide_bindings.so
           fi
 
+      - name: Build and run the native ABI driver
+        if: runner.os == 'Linux'
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror tools/ffi-abi-driver/ffi_abi_driver.c -o ffi_abi_driver -ldl
+          ./ffi_abi_driver runtimes/linux-x64/native/libpdfoxide_bindings.so symbols
+          ./ffi_abi_driver runtimes/linux-x64/native/libpdfoxide_bindings.so smoke
+
       - name: Restore
         run: dotnet restore csharp/PdfOxideTests/PdfOxideTests.csproj
 

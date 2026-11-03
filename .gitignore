@@ -2,6 +2,8 @@
 /rust/target/
 /rust/fuzz/target/
 /rust/fuzz/artifacts/
+/tools/ffi-abi-driver/ffi_abi_driver
+/tools/ffi-abi-driver/ffi_abi_driver.exe
 **/*.rs.bk
 *.pdb
 
