@@ -42,6 +42,10 @@ internal static class Scenarios
         ["streaming-abandoned"] = _ => StreamingAbandoned(),
         ["streaming-column-validation"] = _ => StreamingColumnValidation(),
         ["add-page-like-extremes"] = _ => AddPageLikeExtremes(),
+        ["editor-error-code-contract"] = _ => EditorErrorCodeContract(),
+        ["editor-from-bytes-validation"] = _ => EditorFromBytesValidation(),
+        ["editor-double-free"] = _ => EditorDoubleFree(),
+        ["editor-from-bytes-overflow"] = _ => EditorFromBytesOverflow(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -494,6 +498,231 @@ internal static class Scenarios
         finally
         {
             NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Editor handle scenarios (K1-K3)
+    // ---------------------------------------------------------------------
+
+    private static unsafe ScenarioResult EditorErrorCodeContract()
+    {
+        string path = TempPath("editor");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] pathBytes = Utf8(path);
+            byte[] password = Utf8(string.Empty);
+            fixed (byte* pPath = pathBytes)
+            fixed (byte* pPassword = password)
+            {
+                var failures = new List<string>();
+                void Expect(string name, bool condition, string detail)
+                {
+                    if (!condition)
+                    {
+                        failures.Add(name + ": " + detail);
+                    }
+                }
+
+                int errorCode = 42;
+                IntPtr handle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                    pPath, pPassword, &errorCode);
+                Expect("success-handle", handle != IntPtr.Zero, "handle was null");
+                Expect("success-error", errorCode == 0, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                if (handle != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(handle);
+                }
+
+                errorCode = 42;
+                byte[] missing = Utf8(path + ".missing");
+                fixed (byte* pMissing = missing)
+                {
+                    IntPtr missingHandle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                        pMissing, pPassword, &errorCode);
+                    Expect("missing-handle", missingHandle == IntPtr.Zero, "handle was not null");
+                    Expect("missing-error", errorCode == -1, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                    if (missingHandle != IntPtr.Zero)
+                    {
+                        UpstreamNativeMethods.document_editor_free(missingHandle);
+                    }
+                }
+
+                IntPtr nullErrorHandle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                    pPath, pPassword, null);
+                Expect("null-error-code-handle", nullErrorHandle != IntPtr.Zero, "handle was null");
+                if (nullErrorHandle != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(nullErrorHandle);
+                }
+
+                errorCode = 42;
+                IntPtr nullPasswordHandle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                    pPath, null, &errorCode);
+                Expect("null-password-handle", nullPasswordHandle == IntPtr.Zero, "handle was not null");
+                Expect("null-password-error", errorCode == -1, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                if (nullPasswordHandle != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(nullPasswordHandle);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("editor error_code and password contract verified")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorFromBytesValidation()
+    {
+        string path = TempPath("editor-bytes");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            byte[] password = Utf8(string.Empty);
+            fixed (byte* pData = bytes)
+            fixed (byte* pPassword = password)
+            {
+                var failures = new List<string>();
+                void Expect(string name, bool condition, string detail)
+                {
+                    if (!condition)
+                    {
+                        failures.Add(name + ": " + detail);
+                    }
+                }
+
+                int errorCode = 42;
+                IntPtr exact = UpstreamNativeMethods.pdfoxide_editor_open_from_bytes_with_password(
+                    pData, (nuint)bytes.Length, pPassword, &errorCode);
+                Expect("exact-handle", exact != IntPtr.Zero, "handle was null");
+                Expect("exact-error", errorCode == 0, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                if (exact != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(exact);
+                }
+
+                errorCode = 42;
+                IntPtr zero = UpstreamNativeMethods.pdfoxide_editor_open_from_bytes_with_password(
+                    pData, 0, pPassword, &errorCode);
+                Expect("zero-handle", zero == IntPtr.Zero, "handle was not null");
+                Expect("zero-error", errorCode == -1, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                if (zero != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(zero);
+                }
+
+                errorCode = 42;
+                IntPtr nullData = UpstreamNativeMethods.pdfoxide_editor_open_from_bytes_with_password(
+                    null, (nuint)bytes.Length, pPassword, &errorCode);
+                Expect("null-handle", nullData == IntPtr.Zero, "handle was not null");
+                Expect("null-error", errorCode == -1, "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+                if (nullData != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(nullData);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("editor-from-bytes validation is enforced")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorDoubleFree()
+    {
+        string path = TempPath("editor-double");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] pathBytes = Utf8(path);
+            byte[] password = Utf8(string.Empty);
+            fixed (byte* pPath = pathBytes)
+            fixed (byte* pPassword = password)
+            {
+                int errorCode = 0;
+                IntPtr handle = UpstreamNativeMethods.pdfoxide_editor_open_with_password(
+                    pPath, pPassword, &errorCode);
+                if (handle == IntPtr.Zero)
+                {
+                    return ScenarioResult.Fail("could not open the sample editor");
+                }
+
+                UpstreamNativeMethods.document_editor_free(handle);
+                UpstreamNativeMethods.document_editor_free(handle);
+                return ScenarioResult.Ok("freed the same editor handle twice");
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorFromBytesOverflow()
+    {
+        string path = TempPath("editor-overflow");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            byte[] password = Utf8(string.Empty);
+            fixed (byte* pData = bytes)
+            fixed (byte* pPassword = password)
+            {
+                int errorCode = 0;
+                IntPtr handle = UpstreamNativeMethods.pdfoxide_editor_open_from_bytes_with_password(
+                    pData, (nuint)(bytes.Length + 1), pPassword, &errorCode);
+                if (handle != IntPtr.Zero)
+                {
+                    UpstreamNativeMethods.document_editor_free(handle);
+                }
+
+                return ScenarioResult.Ok(
+                    $"len+1 returned {(handle == IntPtr.Zero ? "error" : "handle")}, "
+                    + "errorCode=" + errorCode.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe bool CreateSamplePdf(string path)
+    {
+        byte[] text = Utf8("hello");
+        byte[] output = Utf8(path);
+        fixed (byte* pText = text)
+        fixed (byte* pOutput = output)
+        {
+            return NativeMethods.pdf_from_text(pText, pOutput) == 0 && File.Exists(path);
         }
     }
 

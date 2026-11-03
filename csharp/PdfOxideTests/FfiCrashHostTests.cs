@@ -92,6 +92,22 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestEditorErrorCodeContract()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-error-code-contract");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestEditorFromBytesValidation()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-from-bytes-validation");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestStreamingStateMachine()
     {
         CrashHostResult result = CrashHostRunner.Run("streaming-state-machine");
@@ -151,6 +167,8 @@ public class FfiCrashHostTests
     [InlineData("image-len-overflow")]
     [InlineData("table-short-cells")]
     [InlineData("rich-short-colors")]
+    [InlineData("editor-double-free")]
+    [InlineData("editor-from-bytes-overflow")]
     public void TestMemorySafetyScenarioTerminatesWithoutManagedFailure(string scenario)
     {
         CrashHostResult result = CrashHostRunner.Run(scenario);

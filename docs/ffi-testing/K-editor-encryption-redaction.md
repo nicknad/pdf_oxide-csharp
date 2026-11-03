@@ -6,6 +6,9 @@ shim boxes an upstream `DocumentEditor`, and C# frees it with the upstream
 `document_editor_free` (`csharp/PdfOxideBindings/PdfEditor.cs:1194`). The wrapper
 serializes calls with a per-instance lock; raw native callers do not.
 
+Status: K1-K3 are implemented in `FfiCrashHost` and covered by `FfiCrashHostTests`;
+the remaining scenarios are design-only.
+
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |
 | K1 | Editor handle ownership across the password shim | Open with `pdfoxide_editor_open_with_password` / `..._from_bytes_with_password`, free with `document_editor_free`; run wrong-free and double-free in `FfiCrashHost` | The shim returns `Box<DocumentEditor>` as `*mut c_void` (`rust/src/lib.rs:4407-4449`); allocator/type mismatch corrupts the heap |

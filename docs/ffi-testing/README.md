@@ -50,8 +50,8 @@ surface.
   `DllImport` entry point and verifies the shipped native library exports it.
 - `rust/fuzz` - `cargo fuzz` targets for the document API and the builder API.
 
-Groups K-N are largely design-only; `FfiCrashHost` now covers streaming state
-(N1-N3) and `add_page_like` extremes (N8). See
+Groups K-N are largely design-only; `FfiCrashHost` now covers editor handle
+contracts (K1-K3), streaming state (N1-N3), and `add_page_like` extremes (N8). See
 [I-crash-harness.md](I-crash-harness.md) for the isolation contract and exit codes.
 
 ## Re-evaluation checklist (when trunk advances)
