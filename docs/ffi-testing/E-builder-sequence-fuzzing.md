@@ -12,3 +12,5 @@
 | E8 | Output path attacks | `..\`, UNC paths, symlinks, FIFOs, directory-as-file, very long paths | Tests path handling and TOCTOU behavior |
 | E9 | Large builder state | 100k pages / 10M ops while monitoring memory | Bounds checks and OOM behavior |
 | E10 | Image bytes fuzz | Feed random and truncated PNG/JPEG data to `add_image_bytes` | Exercises encoder/decoder error paths; must return `-1` |
+| E11 | Extended builder sequences | Random sequences mixing forms, links, annotations, watermarks, barcodes, graphics, font registration, and tagged-PDF calls | The new op families share the same mutable builder state |
+| E12 | Editor operation sequences | Random delete/move/rotate/crop/merge/extract/redact sequences, including invalid indices and disposed handles | Editor operations mutate a single upstream handle and can leave it inconsistent |

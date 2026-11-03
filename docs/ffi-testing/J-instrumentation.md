@@ -9,3 +9,4 @@
 | SharpFuzz / random-op generator | D9, E1-E6 | Managed-path failures |
 | PageHeap / procdump / WER | Windows partial crashes | Heap corruption and native access violations |
 | `cargo miri` (pure-Rust parts only) | Internal logic | UB not reachable through the FFI tests |
+| ASAN + PageHeap (upstream paths) | Editor, signing, TSA, and upstream `free_bytes` | Upstream buffers use `libc::free` with no length; mismatched frees are silent without a heap checker |

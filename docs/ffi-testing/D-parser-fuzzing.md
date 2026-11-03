@@ -12,3 +12,7 @@
 | D8 | C-ABI fuzzer | AFL++ persistent-mode C driver: `dlopen` the cdylib, decode bytes into a (symbol, args) call | Fuzzes the ABI itself, not only the parser; catches out-of-bounds reads from mismatched lengths |
 | D9 | Managed fuzzer | SharpFuzz or a random PDF feed through `PdfDocument` in subprocess workers | Verifies the exact consumer path, including JSON deserialization |
 | D10 | Timeout oracle | Watchdog (for example 10 s) per input; kill and classify as a hang | Parser hangs are as bad as crashes in a library |
+| D11 | Editor/encryption/signing fuzz selector | Extend `rust/fuzz/fuzz_targets/document.rs` to open, edit, encrypt, redact, sign, and verify mutated files | The current target only calls read/extract APIs |
+| D12 | Encrypted PDF and password corpus | Mutate encrypted seeds and passwords; cover empty/wrong/embedded-NUL passwords | Authentication and editor-from-bytes are new code paths |
+| D13 | Managed signature fallback fuzz | Fuzz `PdfSigning` fallback parsing of `/ByteRange`, `/Contents`, and DER with SharpFuzz or property tests | The fallback allocates from attacker-controlled ranges (`PdfSigning.cs:541-1046`) |
+| D14 | Builder-extension fuzz | Add form/link/watermark/stamp/footnote/barcode/graphics/font/tagged-PDF ops to the builder fuzzer | The current builder fuzzer stops at the pre-`ca8061a` surface |

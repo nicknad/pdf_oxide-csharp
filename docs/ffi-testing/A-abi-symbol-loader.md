@@ -8,3 +8,4 @@
 | A4 | Old native binary with new managed package | Ship the previous `.so`/`.dll`, run the new test suite | New entrypoints or semantics must fail deterministically instead of calling into garbage |
 | A5 | Wrong RID binary | Load the `linux-x64` asset on Windows (and vice versa) | Guards `runtimes/<rid>/native` packaging |
 | A6 | Loader/unload races | Load in a collectible `AssemblyLoadContext`, unload while a call is running | Documented as unsupported, but must not silently corrupt |
+| A7 | Argument ABI and signature skew | Build old and new native libraries and call the 13 `page_index` builder functions through the generated bindings in a child process | Inserting a parameter changes register/stack argument positions; A1 checks only that symbols exist |

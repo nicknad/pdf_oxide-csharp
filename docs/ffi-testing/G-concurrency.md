@@ -8,3 +8,7 @@
 | G4 | Concurrent free of returned strings | Multiple threads free their own pointers | Allocator thread-safety sanity |
 | G5 | GC pressure during calls | A background thread allocates and forces GC while the main thread is inside a native call | Verifies `fixed`/`GCHandle` pinning keeps buffers alive |
 | G6 | Pinning failure under fragmentation | Large pinned allocations for `ConvertImages` and rich paragraphs | `GCHandle.Alloc` failures must not leak handles |
+| G7 | Editor wrapper lock vs raw calls | Concurrent operations through `PdfEditor` (serialized) and direct P/Invoke (unsynchronized) under TSan | The lock exists only in the managed wrapper (`PdfEditor.cs`) |
+| G8 | Certificate/TSA dispose races | Concurrent `Dispose` and use of `PdfSigningCertificate` / `PdfTimestampClient` | No lock or `Interlocked` around handle release (`PdfSigning.cs:109-132`, `:1267-1276`) |
+| G9 | Builder dispose plus finalizer race | Two threads dispose the same `DocumentBuilder`; force `GC.Collect`/finalizers | `_disposed` is a plain bool and the native free is not idempotent |
+| G10 | Parallel signing and verification | Sign/verify independent documents in parallel; share one certificate handle | Confirms per-document isolation and exposes shared-handle races |

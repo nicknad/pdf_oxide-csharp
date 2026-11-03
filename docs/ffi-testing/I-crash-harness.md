@@ -18,6 +18,18 @@ memory-safety scenarios must run behind a process boundary.
 4. Run the whole suite under ASAN+UBSAN (Linux, Rust nightly), TSan for concurrency,
    and Windows PageHeap / Application Verifier.
 
+## New surface routed through the host
+
+The host currently covers core builder/document UB. Add these families as the new
+handles land:
+
+- editor handle: double-free, wrong free, use-after-free, password failures
+- dual allocators: shim `pdf_bytes_free(len)` versus upstream `free_bytes(ptr)`
+- signature/timestamp: certificate/TSA dispose races and the borrowed token
+- unchecked arrays: radio group, dash/point/path, table cells, image/font lengths
+
+`NativeAbiTests` covers scenario A1 (export presence) in the normal test run.
+
 ## Host protocol
 
 ```
