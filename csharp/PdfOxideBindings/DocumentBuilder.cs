@@ -568,6 +568,173 @@ namespace PdfOxide
             }
         }
 
+        internal void AddTextField(int pageIndex, string name, PdfRect rect, string? defaultValue)
+        {
+            CheckDisposed();
+            byte[]? defaultBytes = Utf8OrNull(defaultValue);
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pDefaultValue = defaultBytes)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_text_field(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height, pDefaultValue));
+            }
+        }
+
+        internal void AddCheckbox(int pageIndex, string name, PdfRect rect, bool isChecked)
+        {
+            CheckDisposed();
+
+            fixed (byte* pName = Utf8(name))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_checkbox(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height, isChecked ? 1 : 0));
+            }
+        }
+
+        internal void AddComboBox(int pageIndex, string name, PdfRect rect, string[] options, string? selected)
+        {
+            CheckDisposed();
+            byte[]? selectedBytes = Utf8OrNull(selected);
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pOptions = Utf8(string.Join('\n', options)))
+            fixed (byte* pSelected = selectedBytes)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_combo_box(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height, pOptions, pSelected));
+            }
+        }
+
+        internal void AddListBox(
+            int pageIndex,
+            string name,
+            PdfRect rect,
+            string[] options,
+            string? selected,
+            bool multiSelect)
+        {
+            CheckDisposed();
+            byte[]? selectedBytes = Utf8OrNull(selected);
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pOptions = Utf8(string.Join('\n', options)))
+            fixed (byte* pSelected = selectedBytes)
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_list_box(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    pOptions, pSelected, multiSelect ? 1 : 0));
+            }
+        }
+
+        internal void AddRadioGroup(int pageIndex, string name, PdfRadioOption[] options, string? selected)
+        {
+            CheckDisposed();
+            byte[]? selectedBytes = Utf8OrNull(selected);
+
+            var encodedValues = new byte[options.Length][];
+            var xs = new float[options.Length];
+            var ys = new float[options.Length];
+            var widths = new float[options.Length];
+            var heights = new float[options.Length];
+            for (int index = 0; index < options.Length; index++)
+            {
+                PdfRadioOption option = options[index];
+                encodedValues[index] = Utf8(option.ExportValue);
+                xs[index] = option.Rect.X;
+                ys[index] = option.Rect.Y;
+                widths[index] = option.Rect.Width;
+                heights[index] = option.Rect.Height;
+            }
+
+            var handles = new GCHandle[options.Length];
+            var pointers = new byte*[options.Length];
+            try
+            {
+                for (int index = 0; index < options.Length; index++)
+                {
+                    handles[index] = GCHandle.Alloc(encodedValues[index], GCHandleType.Pinned);
+                    pointers[index] = (byte*)handles[index].AddrOfPinnedObject();
+                }
+
+                fixed (byte* pName = Utf8(name))
+                fixed (byte** pValues = pointers)
+                fixed (float* pXs = xs)
+                fixed (float* pYs = ys)
+                fixed (float* pWidths = widths)
+                fixed (float* pHeights = heights)
+                fixed (byte* pSelected = selectedBytes)
+                {
+                    ThrowIfFailed(NativeMethods.pdf_builder_add_radio_group(
+                        _state, pageIndex, pName,
+                        pValues, pXs, pYs, pWidths, pHeights,
+                        options.Length, pSelected));
+                }
+            }
+            finally
+            {
+                foreach (GCHandle handle in handles)
+                {
+                    if (handle.IsAllocated)
+                    {
+                        handle.Free();
+                    }
+                }
+            }
+        }
+
+        internal void AddPushButton(int pageIndex, string name, PdfRect rect, string caption)
+        {
+            CheckDisposed();
+
+            fixed (byte* pName = Utf8(name))
+            fixed (byte* pCaption = Utf8(caption))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_push_button(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height, pCaption));
+            }
+        }
+
+        internal void AddSignatureField(int pageIndex, string name, PdfRect rect)
+        {
+            CheckDisposed();
+
+            fixed (byte* pName = Utf8(name))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_signature_field(
+                    _state, pageIndex, pName,
+                    rect.X, rect.Y, rect.Width, rect.Height));
+            }
+        }
+
+        internal void AddQrCode(int pageIndex, string data, float x, float y, float size)
+        {
+            CheckDisposed();
+
+            fixed (byte* pData = Utf8(data))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_qr_code(
+                    _state, pageIndex, pData, x, y, size));
+            }
+        }
+
+        internal void AddBarcode(int pageIndex, PdfBarcodeType type, string data, PdfRect rect)
+        {
+            CheckDisposed();
+
+            fixed (byte* pData = Utf8(data))
+            {
+                ThrowIfFailed(NativeMethods.pdf_builder_add_barcode(
+                    _state, pageIndex, (int)type, pData,
+                    rect.X, rect.Y, rect.Width, rect.Height));
+            }
+        }
+
         private PdfPageBuilder AddPageCore(int kind, float width, float height)
         {
             ThrowIfFailed(NativeMethods.pdf_builder_add_page(_state, kind, width, height));

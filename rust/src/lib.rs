@@ -228,6 +228,75 @@ enum BuilderOp {
         ref_mark: String,
         note_text: String,
     },
+    FormTextField {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        default_value: Option<String>,
+    },
+    FormCheckbox {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        checked: bool,
+    },
+    FormComboBox {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        options: Vec<String>,
+        selected: Option<String>,
+    },
+    FormListBox {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        options: Vec<String>,
+        selected: Option<String>,
+        multi_select: bool,
+    },
+    FormRadioGroup {
+        name: String,
+        buttons: Vec<(String, f32, f32, f32, f32)>,
+        selected: Option<String>,
+    },
+    FormPushButton {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        caption: String,
+    },
+    FormSignatureField {
+        name: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    BarcodeQr {
+        data: String,
+        x: f32,
+        y: f32,
+        size: f32,
+    },
+    Barcode1d {
+        barcode_type: i32,
+        data: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
 }
 
 struct PageSpec {
@@ -544,6 +613,104 @@ fn render_op<'a>(
             note_text,
         } => {
             page = page.footnote(ref_mark, note_text);
+        }
+        BuilderOp::FormTextField {
+            name,
+            x,
+            y,
+            width,
+            height,
+            default_value,
+        } => {
+            page = page.text_field(name, *x, *y, *width, *height, default_value.clone());
+        }
+        BuilderOp::FormCheckbox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            checked,
+        } => {
+            page = page.checkbox(name, *x, *y, *width, *height, *checked);
+        }
+        BuilderOp::FormComboBox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            options,
+            selected,
+        } => {
+            page = page.combo_box(name, *x, *y, *width, *height, options.clone(), selected.clone());
+        }
+        BuilderOp::FormListBox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            options,
+            selected,
+            multi_select,
+        } => {
+            page = page.list_box(
+                name,
+                *x,
+                *y,
+                *width,
+                *height,
+                options.clone(),
+                selected.clone(),
+                *multi_select,
+            );
+        }
+        BuilderOp::FormRadioGroup {
+            name,
+            buttons,
+            selected,
+        } => {
+            page = page.radio_group(name, buttons.clone(), selected.clone());
+        }
+        BuilderOp::FormPushButton {
+            name,
+            x,
+            y,
+            width,
+            height,
+            caption,
+        } => {
+            page = page.push_button(name, *x, *y, *width, *height, caption);
+        }
+        BuilderOp::FormSignatureField {
+            name,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            page = page.signature_field(name, *x, *y, *width, *height);
+        }
+        BuilderOp::BarcodeQr { data, x, y, size } => {
+            page = page.barcode_qr(data, *x, *y, *size)?;
+        }
+        BuilderOp::Barcode1d {
+            barcode_type,
+            data,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            page = page.barcode_1d(
+                parse_barcode_type(*barcode_type)?,
+                data,
+                *x,
+                *y,
+                *width,
+                *height,
+            )?;
         }
     }
 
@@ -1716,6 +1883,62 @@ fn parse_stamp_type(name: &str) -> StampType {
     }
 }
 
+fn parse_barcode_type(
+    barcode_type: i32,
+) -> Result<pdf_oxide::writer::BarcodeType, Box<dyn std::error::Error>> {
+    use pdf_oxide::writer::BarcodeType;
+    match barcode_type {
+        0 => Ok(BarcodeType::Code128),
+        1 => Ok(BarcodeType::Code39),
+        2 => Ok(BarcodeType::Ean13),
+        3 => Ok(BarcodeType::Ean8),
+        4 => Ok(BarcodeType::UpcA),
+        5 => Ok(BarcodeType::Itf),
+        6 => Ok(BarcodeType::Code93),
+        7 => Ok(BarcodeType::Codabar),
+        other => Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("unknown barcode type code: {other}"),
+        )
+        .into()),
+    }
+}
+
+fn parse_options(
+    ptr: *const c_char,
+    argument: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let raw = c_string_to_string(ptr, argument)?;
+    if raw.is_empty() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "options must contain at least one entry",
+        )
+        .into());
+    }
+
+    let options: Vec<String> = raw.split('\n').map(str::to_owned).collect();
+    if options.is_empty() || options.iter().any(|option| option.is_empty()) {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "options must be newline-separated and must not be empty",
+        )
+        .into());
+    }
+    Ok(options)
+}
+
+fn require_non_empty(value: &str, argument: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if value.is_empty() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("{argument} must not be empty"),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn validate_color(
     r: f32,
     g: f32,
@@ -2682,6 +2905,310 @@ pub extern "C" fn pdf_builder_add_footnote(
         state.page_mut(page_index)?.ops.push(BuilderOp::Footnote {
             ref_mark,
             note_text,
+        });
+        Ok(())
+    })
+}
+
+/// Add a single-line text form field. `default_value` may be null.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_text_field(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    default_value: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        let default_value = optional_string(default_value, "default value")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormTextField {
+            name,
+            x,
+            y,
+            width,
+            height,
+            default_value,
+        });
+        Ok(())
+    })
+}
+
+/// Add a checkbox form field.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_checkbox(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    checked: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormCheckbox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            checked: checked != 0,
+        });
+        Ok(())
+    })
+}
+
+/// Add a combo-box form field.
+///
+/// Options are supplied as a newline-separated string. Option values must not
+/// contain newlines; this ambiguity is rejected indirectly by empty entries.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_combo_box(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    options: *const c_char,
+    selected: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        let options = parse_options(options, "options")?;
+        let selected = optional_string(selected, "selected")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormComboBox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            options,
+            selected,
+        });
+        Ok(())
+    })
+}
+
+/// Add a list-box form field.
+///
+/// Options are supplied as a newline-separated string. Option values must not
+/// contain newlines; this ambiguity is rejected indirectly by empty entries.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_list_box(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    options: *const c_char,
+    selected: *const c_char,
+    multi_select: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        let options = parse_options(options, "options")?;
+        let selected = optional_string(selected, "selected")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormListBox {
+            name,
+            x,
+            y,
+            width,
+            height,
+            options,
+            selected,
+            multi_select: multi_select != 0,
+        });
+        Ok(())
+    })
+}
+
+/// Add a radio-button group.
+///
+/// # Safety
+/// `values`, `xs`, `ys`, `ws`, and `hs` must point to arrays of at least
+/// `count` elements.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_add_radio_group(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    values: *const *const c_char,
+    xs: *const f32,
+    ys: *const f32,
+    ws: *const f32,
+    hs: *const f32,
+    count: i32,
+    selected: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        if count <= 0 {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "radio button count must be positive").into(),
+            );
+        }
+        if values.is_null() || xs.is_null() || ys.is_null() || ws.is_null() || hs.is_null() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "radio button data must not be null",
+            )
+            .into());
+        }
+
+        let mut buttons = Vec::with_capacity(count as usize);
+        for index in 0..count as usize {
+            let value = c_string_to_string(unsafe { *values.add(index) }, "radio option")?;
+            require_non_empty(&value, "radio option")?;
+            let x = unsafe { *xs.add(index) };
+            let y = unsafe { *ys.add(index) };
+            let width = unsafe { *ws.add(index) };
+            let height = unsafe { *hs.add(index) };
+            validate_rect(x, y, width, height)?;
+            buttons.push((value, x, y, width, height));
+        }
+
+        let selected = optional_string(selected, "selected")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormRadioGroup {
+            name,
+            buttons,
+            selected,
+        });
+        Ok(())
+    })
+}
+
+/// Add a push-button form field with a visible caption.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_push_button(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    caption: *const c_char,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        let caption = c_string_to_string(caption, "caption")?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::FormPushButton {
+            name,
+            x,
+            y,
+            width,
+            height,
+            caption,
+        });
+        Ok(())
+    })
+}
+
+/// Add an unsigned signature placeholder field.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_signature_field(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    name: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let name = c_string_to_string(name, "name")?;
+        require_non_empty(&name, "name")?;
+        validate_rect(x, y, width, height)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::FormSignatureField {
+                name,
+                x,
+                y,
+                width,
+                height,
+            });
+        Ok(())
+    })
+}
+
+/// Add a square QR code image.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_qr_code(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    data: *const c_char,
+    x: f32,
+    y: f32,
+    size: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        let data = c_string_to_string(data, "data")?;
+        require_non_empty(&data, "data")?;
+        validate_rect(x, y, size, size)?;
+        state
+            .page_mut(page_index)?
+            .ops
+            .push(BuilderOp::BarcodeQr { data, x, y, size });
+        Ok(())
+    })
+}
+
+/// Add a 1-D barcode image. `barcode_type` is 0=Code128, 1=Code39, 2=Ean13,
+/// 3=Ean8, 4=UpcA, 5=Itf, 6=Code93, 7=Codabar.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_barcode(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    barcode_type: i32,
+    data: *const c_char,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        parse_barcode_type(barcode_type)?;
+        let data = c_string_to_string(data, "data")?;
+        require_non_empty(&data, "data")?;
+        validate_rect(x, y, width, height)?;
+        state.page_mut(page_index)?.ops.push(BuilderOp::Barcode1d {
+            barcode_type,
+            data,
+            x,
+            y,
+            width,
+            height,
         });
         Ok(())
     })

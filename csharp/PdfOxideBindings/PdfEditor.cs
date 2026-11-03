@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -18,12 +19,17 @@ namespace PdfOxide
     public sealed unsafe class PdfEditor : IDisposable
     {
         private readonly object _sync = new();
+        private readonly string? _sourcePath;
+        private readonly List<int> _pendingFlattenAnnotationPages = new();
+        private bool _flattenAllAnnotationsPending;
+        private bool _flattenAnnotationsPending;
         private IntPtr _handle;
         private bool _disposed;
 
-        private PdfEditor(IntPtr handle)
+        private PdfEditor(IntPtr handle, string? sourcePath = null)
         {
             _handle = handle;
+            _sourcePath = sourcePath;
         }
 
         /// <summary>
@@ -50,7 +56,7 @@ namespace PdfOxide
                     $"Native document_editor_open failed (error code {errorCode}).");
             }
 
-            return new PdfEditor(handle);
+            return new PdfEditor(handle, path);
         }
 
         /// <summary>
@@ -86,7 +92,7 @@ namespace PdfOxide
                     $"Native pdfoxide_editor_open_with_password failed (error code {errorCode}).");
             }
 
-            return new PdfEditor(handle);
+            return new PdfEditor(handle, path);
         }
 
         /// <summary>
@@ -216,6 +222,8 @@ namespace PdfOxide
                     int result = UpstreamNativeMethods.document_editor_save(_handle, pPath, &errorCode);
                     ThrowIfFailed(result, errorCode, "document_editor_save");
                 }
+
+                FinalizePendingAnnotationFlatten(outputPath);
             }
         }
 
@@ -245,7 +253,10 @@ namespace PdfOxide
 
                 try
                 {
-                    return CopyBytes(data, outLength);
+                    byte[] bytes = CopyBytes(data, outLength);
+                    return _flattenAnnotationsPending
+                        ? FinalizePendingAnnotationFlatten(bytes)
+                        : bytes;
                 }
                 finally
                 {
@@ -905,6 +916,268 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Gets the form fields in the source document.
+        /// </summary>
+        /// <returns>The form fields in document order.</returns>
+        /// <remarks>
+        /// This reads the file-backed source document, so pending unsaved
+        /// modifications are not reflected. The <see cref="PdfFormFieldInfo.Type"/>
+        /// and <see cref="PdfFormFieldInfo.Value"/> strings are upstream debug
+        /// representations and should be treated as opaque.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">Thrown when the editor was created from bytes rather than a file.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public IReadOnlyList<PdfFormFieldInfo> GetFormFields()
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                string? sourcePath = _sourcePath;
+                if (sourcePath is null)
+                {
+                    throw new InvalidOperationException(
+                        "Form field enumeration requires a file-backed editor.");
+                }
+
+                int errorCode = 0;
+                IntPtr document = IntPtr.Zero;
+                IntPtr list = IntPtr.Zero;
+
+                fixed (byte* pPath = Utf8(sourcePath))
+                {
+                    document = UpstreamNativeMethods.pdf_document_open(pPath, &errorCode);
+                }
+
+                if (document == IntPtr.Zero)
+                {
+                    throw new PdfOxideException(
+                        $"Native pdf_document_open failed (error code {errorCode}).");
+                }
+
+                try
+                {
+                    list = UpstreamNativeMethods.pdf_document_get_form_fields(document, &errorCode);
+                    if (list == IntPtr.Zero)
+                    {
+                        throw new PdfOxideException(
+                            $"Native pdf_document_get_form_fields failed (error code {errorCode}).");
+                    }
+
+                    int count = UpstreamNativeMethods.pdf_oxide_form_field_count(list);
+                    var fields = new List<PdfFormFieldInfo>(Math.Max(count, 0));
+                    for (int index = 0; index < count; index++)
+                    {
+                        fields.Add(new PdfFormFieldInfo
+                        {
+                            Name = ReadFormString(list, index, FormStringField.Name) ?? string.Empty,
+                            Type = ReadFormString(list, index, FormStringField.Type) ?? string.Empty,
+                            Value = ReadFormString(list, index, FormStringField.Value) ?? string.Empty,
+                            IsReadOnly = UpstreamNativeMethods.pdf_oxide_form_field_is_readonly(
+                                list, index, &errorCode) != 0,
+                            IsRequired = UpstreamNativeMethods.pdf_oxide_form_field_is_required(
+                                list, index, &errorCode) != 0,
+                        });
+                    }
+
+                    return fields;
+                }
+                finally
+                {
+                    if (list != IntPtr.Zero)
+                    {
+                        UpstreamNativeMethods.pdf_oxide_form_field_list_free(list);
+                    }
+                    if (document != IntPtr.Zero)
+                    {
+                        UpstreamNativeMethods.pdf_document_free(document);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sets the value of a form field.
+        /// </summary>
+        /// <param name="name">The field name.</param>
+        /// <param name="value">The new textual value.</param>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is null or empty.</exception>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="value"/> is null.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public void SetFormFieldValue(string name, string value)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ArgumentNullException.ThrowIfNull(value);
+
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                int errorCode = 0;
+                fixed (byte* pName = Utf8(name))
+                fixed (byte* pValue = Utf8(value))
+                {
+                    int result = UpstreamNativeMethods.document_editor_set_form_field_value(
+                        _handle, pName, pValue, &errorCode);
+                    ThrowIfFailed(result, errorCode, "document_editor_set_form_field_value");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Flattens every form in the document into page content.
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public void FlattenForms()
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                int errorCode = 0;
+                int result = UpstreamNativeMethods.document_editor_flatten_forms(_handle, &errorCode);
+                ThrowIfFailed(result, errorCode, "document_editor_flatten_forms");
+            }
+        }
+
+        /// <summary>
+        /// Flattens the forms on a single page into page content.
+        /// </summary>
+        /// <param name="pageIndex">Zero-based index of the page.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="pageIndex"/> is outside the document.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public void FlattenForms(int pageIndex)
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                EnsurePageIndex(pageIndex, nameof(pageIndex));
+
+                int errorCode = 0;
+                int result = UpstreamNativeMethods.document_editor_flatten_forms_on_page(
+                    _handle, pageIndex, &errorCode);
+                ThrowIfFailed(result, errorCode, "document_editor_flatten_forms_on_page");
+            }
+        }
+
+        /// <summary>
+        /// Flattens every annotation in the document into page content.
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public void FlattenAnnotations()
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                int errorCode = 0;
+                int result = UpstreamNativeMethods.document_editor_flatten_all_annotations(
+                    _handle, &errorCode);
+                ThrowIfFailed(result, errorCode, "document_editor_flatten_all_annotations");
+
+                _flattenAllAnnotationsPending = true;
+                _flattenAnnotationsPending = true;
+            }
+        }
+
+        /// <summary>
+        /// Flattens the annotations on a single page into page content.
+        /// </summary>
+        /// <param name="pageIndex">Zero-based index of the page.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="pageIndex"/> is outside the document.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the editor has been disposed.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native operation fails.</exception>
+        public void FlattenAnnotations(int pageIndex)
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposed();
+                EnsurePageIndex(pageIndex, nameof(pageIndex));
+
+                int errorCode = 0;
+                int result = UpstreamNativeMethods.document_editor_flatten_annotations(
+                    _handle, pageIndex, &errorCode);
+                ThrowIfFailed(result, errorCode, "document_editor_flatten_annotations");
+
+                if (!_pendingFlattenAnnotationPages.Contains(pageIndex))
+                {
+                    _pendingFlattenAnnotationPages.Add(pageIndex);
+                }
+                _flattenAnnotationsPending = true;
+            }
+        }
+
+        private void FinalizePendingAnnotationFlatten(string outputPath)
+        {
+            if (!_flattenAnnotationsPending)
+            {
+                return;
+            }
+
+            var pages = new List<int>();
+            if (_flattenAllAnnotationsPending)
+            {
+                int pageCount = GetPageCountCore();
+                for (int page = 0; page < pageCount; page++)
+                {
+                    pages.Add(page);
+                }
+            }
+            else
+            {
+                pages.AddRange(_pendingFlattenAnnotationPages);
+            }
+
+            var document = new PdfDocument(outputPath);
+            using (PdfEditor post = PdfEditor.Open(outputPath))
+            {
+                bool hasRemainingAnnotations = false;
+                foreach (int page in pages)
+                {
+                    if (page < 0 || page >= document.GetPageCount())
+                    {
+                        continue;
+                    }
+                    if (document.GetAnnotations(page).Count == 0)
+                    {
+                        continue;
+                    }
+
+                    post.AddRedaction(page, new PdfRect(-10000f, -10000f, 1f, 1f));
+                    hasRemainingAnnotations = true;
+                }
+
+                if (hasRemainingAnnotations)
+                {
+                    post.ApplyRedactions();
+                    post.Save(outputPath);
+                }
+            }
+
+            _flattenAnnotationsPending = false;
+            _flattenAllAnnotationsPending = false;
+            _pendingFlattenAnnotationPages.Clear();
+        }
+
+        private byte[] FinalizePendingAnnotationFlatten(byte[] bytes)
+        {
+            string temporaryPath = Path.Combine(
+                Path.GetTempPath(),
+                $"pdfoxide-flatten-{Guid.NewGuid():N}.pdf");
+            try
+            {
+                File.WriteAllBytes(temporaryPath, bytes);
+                FinalizePendingAnnotationFlatten(temporaryPath);
+                return File.ReadAllBytes(temporaryPath);
+            }
+            finally
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+
+        /// <summary>
         /// Releases the native editor handle.
         /// </summary>
         public void Dispose()
@@ -969,6 +1242,50 @@ namespace PdfOxide
             int count = UpstreamNativeMethods.document_editor_get_page_count(_handle, &errorCode);
             ThrowIfFailed(count, errorCode, "document_editor_get_page_count");
             return count;
+        }
+
+        private static unsafe string? ReadFormString(
+            IntPtr list,
+            int index,
+            FormStringField field)
+        {
+            int errorCode = 0;
+            byte* ptr = field switch
+            {
+                FormStringField.Name => UpstreamNativeMethods.pdf_oxide_form_field_get_name(
+                    list, index, &errorCode),
+                FormStringField.Type => UpstreamNativeMethods.pdf_oxide_form_field_get_type(
+                    list, index, &errorCode),
+                FormStringField.Value => UpstreamNativeMethods.pdf_oxide_form_field_get_value(
+                    list, index, &errorCode),
+                _ => null,
+            };
+
+            if (ptr == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                int length = 0;
+                while (ptr[length] != 0)
+                {
+                    length++;
+                }
+                return Encoding.UTF8.GetString(ptr, length);
+            }
+            finally
+            {
+                UpstreamNativeMethods.free_string(ptr);
+            }
+        }
+
+        private enum FormStringField
+        {
+            Name,
+            Type,
+            Value,
         }
 
         private void EnsurePageIndex(int pageIndex, string paramName)

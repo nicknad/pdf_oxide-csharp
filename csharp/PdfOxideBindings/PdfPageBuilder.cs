@@ -607,6 +607,194 @@ namespace PdfOxide
             return this;
         }
 
+        /// <summary>
+        /// Adds a single-line text form field.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The field rectangle in points.</param>
+        /// <param name="defaultValue">The initial text, or <see langword="null"/> for a blank field.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder TextField(string name, PdfRect rect, string? defaultValue = null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            _owner.AddTextField(_pageIndex, name, rect, defaultValue);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a checkbox form field.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The field rectangle in points.</param>
+        /// <param name="isChecked">Whether the box is initially checked.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Checkbox(string name, PdfRect rect, bool isChecked = false)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            _owner.AddCheckbox(_pageIndex, name, rect, isChecked);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a dropdown combo-box form field.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The field rectangle in points.</param>
+        /// <param name="options">The selectable options.</param>
+        /// <param name="selected">The initially selected option, or <see langword="null"/>.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder ComboBox(string name, PdfRect rect, string[] options, string? selected = null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            ValidateOptions(options);
+            _owner.AddComboBox(_pageIndex, name, rect, options, selected);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a scrollable list-box form field.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The field rectangle in points.</param>
+        /// <param name="options">The selectable options.</param>
+        /// <param name="selected">The initially selected option, or <see langword="null"/>.</param>
+        /// <param name="multiSelect">Whether multiple options can be selected.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder ListBox(
+            string name,
+            PdfRect rect,
+            string[] options,
+            string? selected = null,
+            bool multiSelect = false)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            ValidateOptions(options);
+            _owner.AddListBox(_pageIndex, name, rect, options, selected, multiSelect);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a radio-button group.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="options">The radio options and their rectangles.</param>
+        /// <param name="selected">The initially selected export value, or <see langword="null"/>.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder RadioGroup(string name, PdfRadioOption[] options, string? selected = null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ArgumentNullException.ThrowIfNull(options);
+            if (options.Length == 0)
+            {
+                throw new ArgumentException("At least one radio option is required.", nameof(options));
+            }
+
+            foreach (PdfRadioOption? option in options)
+            {
+                if (option is null)
+                {
+                    throw new ArgumentException("Radio options must not be null.", nameof(options));
+                }
+                ArgumentException.ThrowIfNullOrEmpty(option.ExportValue);
+                ValidateRect(option.Rect);
+            }
+
+            _owner.AddRadioGroup(_pageIndex, name, options, selected);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a clickable push button with a visible caption.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The button rectangle in points.</param>
+        /// <param name="caption">The visible button caption.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder PushButton(string name, PdfRect rect, string caption)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            ArgumentNullException.ThrowIfNull(caption);
+            _owner.AddPushButton(_pageIndex, name, rect, caption);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds an unsigned signature placeholder field.
+        /// </summary>
+        /// <param name="name">The unique field name.</param>
+        /// <param name="rect">The signature rectangle in points.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder SignatureField(string name, PdfRect rect)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+            ValidateRect(rect);
+            _owner.AddSignatureField(_pageIndex, name, rect);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a QR code image.
+        /// </summary>
+        /// <param name="data">The data to encode.</param>
+        /// <param name="rect">The destination rectangle. The QR code is square using the rectangle width and is centered vertically.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder QrCode(string data, PdfRect rect)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(data);
+            ValidateRect(rect);
+            float size = rect.Width;
+            float y = rect.Y + ((rect.Height - size) / 2f);
+            _owner.AddQrCode(_pageIndex, data, rect.X, y, size);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a 1-D barcode image.
+        /// </summary>
+        /// <param name="type">The barcode symbology.</param>
+        /// <param name="data">The data to encode.</param>
+        /// <param name="rect">The destination rectangle in points.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        public PdfPageBuilder Barcode(PdfBarcodeType type, string data, PdfRect rect)
+        {
+            if (!Enum.IsDefined(type))
+            {
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown barcode type.");
+            }
+            ArgumentException.ThrowIfNullOrEmpty(data);
+            ValidateRect(rect);
+            _owner.AddBarcode(_pageIndex, type, data, rect);
+            return this;
+        }
+
+        private static void ValidateOptions(string[] options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+            if (options.Length == 0)
+            {
+                throw new ArgumentException("At least one option is required.", nameof(options));
+            }
+
+            foreach (string? option in options)
+            {
+                if (string.IsNullOrEmpty(option))
+                {
+                    throw new ArgumentException(
+                        "Options must be non-empty.", nameof(options));
+                }
+                if (option.Contains('\n', StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        "Options must not contain newline characters.", nameof(options));
+                }
+            }
+        }
+
         private static void ValidateListItems(string[] items)
         {
             if (items.Length == 0)

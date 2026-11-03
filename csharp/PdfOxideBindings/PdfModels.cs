@@ -34,6 +34,36 @@ namespace PdfOxide
     }
 
     /// <summary>
+    /// Supported 1-D barcode symbologies for <see cref="PdfPageBuilder.Barcode"/>.
+    /// </summary>
+    public enum PdfBarcodeType
+    {
+        /// <summary>Code 128.</summary>
+        Code128 = 0,
+        /// <summary>Code 39.</summary>
+        Code39 = 1,
+        /// <summary>EAN-13.</summary>
+        Ean13 = 2,
+        /// <summary>EAN-8.</summary>
+        Ean8 = 3,
+        /// <summary>UPC-A.</summary>
+        UpcA = 4,
+        /// <summary>Interleaved 2 of 5.</summary>
+        Itf = 5,
+        /// <summary>Code 93.</summary>
+        Code93 = 6,
+        /// <summary>Codabar.</summary>
+        Codabar = 7,
+    }
+
+    /// <summary>
+    /// One option in a radio-button group.
+    /// </summary>
+    /// <param name="ExportValue">The value submitted when this option is selected.</param>
+    /// <param name="Rect">The clickable rectangle for the radio button.</param>
+    public sealed record PdfRadioOption(string ExportValue, PdfRect Rect);
+
+    /// <summary>
     /// Styles for runs inside a rich paragraph.
     /// </summary>
     public enum PdfTextRunStyle

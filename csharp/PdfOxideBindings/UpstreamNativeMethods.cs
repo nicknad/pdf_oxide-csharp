@@ -510,6 +510,76 @@ namespace PdfOxide
 
         #endregion
 
+        #region Forms
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern IntPtr pdf_document_get_form_fields(IntPtr document, int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_oxide_form_field_count(IntPtr list);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_form_field_get_name(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_form_field_get_type(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* pdf_oxide_form_field_get_value(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte pdf_oxide_form_field_is_readonly(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte pdf_oxide_form_field_is_required(
+            IntPtr list,
+            int index,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void pdf_oxide_form_field_list_free(IntPtr list);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int document_editor_set_form_field_value(
+            IntPtr handle,
+            byte* name,
+            byte* value,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int document_editor_flatten_forms(IntPtr handle, int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int document_editor_flatten_forms_on_page(
+            IntPtr handle,
+            int page,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int document_editor_flatten_annotations(
+            IntPtr handle,
+            int page,
+            int* errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int document_editor_flatten_all_annotations(
+            IntPtr handle,
+            int* errorCode);
+
+        #endregion
+
         #region String lifetime
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

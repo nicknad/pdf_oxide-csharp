@@ -491,6 +491,71 @@ namespace PdfOxide
         internal static extern int pdf_builder_add_footnote(PdfBuilderState* state, int page_index, byte* ref_mark, byte* note_text);
 
         /// <summary>
+        ///  Add a single-line text form field. `default_value` may be null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_text_field", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_text_field(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height, byte* default_value);
+
+        /// <summary>
+        ///  Add a checkbox form field.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_checkbox", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_checkbox(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height, int @checked);
+
+        /// <summary>
+        ///  Add a combo-box form field.
+        ///
+        ///  Options are supplied as a newline-separated string. Option values must not
+        ///  contain newlines; this ambiguity is rejected indirectly by empty entries.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_combo_box", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_combo_box(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height, byte* options, byte* selected);
+
+        /// <summary>
+        ///  Add a list-box form field.
+        ///
+        ///  Options are supplied as a newline-separated string. Option values must not
+        ///  contain newlines; this ambiguity is rejected indirectly by empty entries.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_list_box", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_list_box(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height, byte* options, byte* selected, int multi_select);
+
+        /// <summary>
+        ///  Add a radio-button group.
+        ///
+        ///  # Safety
+        ///  `values`, `xs`, `ys`, `ws`, and `hs` must point to arrays of at least
+        ///  `count` elements.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_radio_group", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_radio_group(PdfBuilderState* state, int page_index, byte* name, byte** values, float* xs, float* ys, float* ws, float* hs, int count, byte* selected);
+
+        /// <summary>
+        ///  Add a push-button form field with a visible caption.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_push_button", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_push_button(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height, byte* caption);
+
+        /// <summary>
+        ///  Add an unsigned signature placeholder field.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_signature_field", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_signature_field(PdfBuilderState* state, int page_index, byte* name, float x, float y, float width, float height);
+
+        /// <summary>
+        ///  Add a square QR code image.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_qr_code", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_qr_code(PdfBuilderState* state, int page_index, byte* data, float x, float y, float size);
+
+        /// <summary>
+        ///  Add a 1-D barcode image. `barcode_type` is 0=Code128, 1=Code39, 2=Ean13,
+        ///  3=Ean8, 4=UpcA, 5=Itf, 6=Code93, 7=Codabar.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_barcode", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_barcode(PdfBuilderState* state, int page_index, int barcode_type, byte* data, float x, float y, float width, float height);
+
+        /// <summary>
         ///  Save the accumulated document to a file. The builder remains usable.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_save", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -681,4 +681,40 @@ namespace PdfOxide
         /// </summary>
         public string? IconName { get; init; }
     }
+
+    /// <summary>
+    /// A form field read from a PDF document.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Type"/> and <see cref="Value"/> contain the upstream debug
+    /// representations (for example <c>Text("...")</c> or <c>/Tx</c>) and
+    /// should be treated as opaque diagnostic strings.
+    /// </remarks>
+    public sealed record PdfFormFieldInfo
+    {
+        /// <summary>
+        /// Gets the fully qualified field name.
+        /// </summary>
+        public string Name { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets the upstream debug representation of the field type.
+        /// </summary>
+        public string Type { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets the upstream debug representation of the field value.
+        /// </summary>
+        public string Value { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets a value indicating whether the field is read-only.
+        /// </summary>
+        public bool IsReadOnly { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the field is required.
+        /// </summary>
+        public bool IsRequired { get; init; }
+    }
 }
