@@ -6,6 +6,10 @@ to take `page_index` (`rust/src/lib.rs:2388-2806`). Many new APIs take caller-ow
 arrays and counts without a matching length parameter, so they are high-value ABI
 fuzzing targets.
 
+Status: M2, M4-M9 validation paths are implemented in `FfiCrashHost` (builder
+extensions, short graphics arrays, invalid font bytes); M1, M3, M10-M12 remain
+design-only.
+
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |
 | M1 | Builder signature/ABI skew | Call the old and new builder signatures against the opposite native DLL version in a child process | `page_index` was inserted into 13 functions; `NativeAbiTests` checks symbol presence only |

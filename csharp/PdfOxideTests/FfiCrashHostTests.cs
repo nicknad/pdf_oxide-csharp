@@ -148,6 +148,22 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestBuilderExtensionValidation()
+    {
+        CrashHostResult result = CrashHostRunner.Run("builder-extension-validation");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestFontRegistrationInvalid()
+    {
+        CrashHostResult result = CrashHostRunner.Run("font-registration-invalid");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestStreamingStateMachine()
     {
         CrashHostResult result = CrashHostRunner.Run("streaming-state-machine");
@@ -211,6 +227,7 @@ public class FfiCrashHostTests
     [InlineData("editor-from-bytes-overflow")]
     [InlineData("certificate-null-input")]
     [InlineData("signature-null-handle")]
+    [InlineData("graphics-array-mismatch")]
     public void TestMemorySafetyScenarioTerminatesWithoutManagedFailure(string scenario)
     {
         CrashHostResult result = CrashHostRunner.Run(scenario);

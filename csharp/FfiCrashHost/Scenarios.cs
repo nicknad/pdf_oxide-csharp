@@ -53,6 +53,9 @@ internal static class Scenarios
         ["signature-list-empty"] = _ => SignatureListEmpty(),
         ["certificate-null-input"] = _ => CertificateNullInput(),
         ["signature-null-handle"] = _ => SignatureNullHandle(),
+        ["builder-extension-validation"] = _ => BuilderExtensionValidation(),
+        ["graphics-array-mismatch"] = _ => GraphicsArrayMismatch(),
+        ["font-registration-invalid"] = _ => FontRegistrationInvalid(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -1070,6 +1073,240 @@ internal static class Scenarios
         fixed (byte* pOutput = output)
         {
             return NativeMethods.pdf_from_text(pText, pOutput) == 0 && File.Exists(path);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Builder extension scenarios (M2, M4-M9)
+    // ---------------------------------------------------------------------
+
+    private static unsafe ScenarioResult BuilderExtensionValidation()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            var observations = new List<string>();
+            void Expect(string name, int actual, int expected)
+            {
+                if (actual != expected)
+                {
+                    failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                        + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            byte[] empty = Utf8(string.Empty);
+            byte[] url = Utf8("https://example.com");
+            byte[] note = Utf8("note");
+            byte[] watermark = Utf8("CONFIDENTIAL");
+            byte[] reference = Utf8("[1]");
+            byte[] noteText = Utf8("footnote text");
+            byte[] fieldName = Utf8("field");
+            byte[] options = Utf8("one\ntwo");
+            byte[] selected = Utf8("one");
+            byte[] stamp = Utf8("Approved");
+            byte[] qrData = Utf8("hello");
+            byte[] barcodeData = Utf8("1234567890");
+            byte[] fontName = Utf8("BadFont");
+            byte[] language = Utf8("en-US");
+            byte[] customRole = Utf8("CustomRole");
+            byte[] standardRole = Utf8("P");
+            byte[] garbageFont = new byte[32];
+            byte[] value0 = Utf8("a");
+            byte[] value1 = Utf8("b");
+
+            fixed (byte* pEmpty = empty)
+            fixed (byte* pUrl = url)
+            fixed (byte* pNote = note)
+            fixed (byte* pWatermark = watermark)
+            fixed (byte* pReference = reference)
+            fixed (byte* pNoteText = noteText)
+            fixed (byte* pField = fieldName)
+            fixed (byte* pOptions = options)
+            fixed (byte* pSelected = selected)
+            fixed (byte* pStamp = stamp)
+            fixed (byte* pQr = qrData)
+            fixed (byte* pBarcode = barcodeData)
+            fixed (byte* pFontName = fontName)
+            fixed (byte* pLanguage = language)
+            fixed (byte* pCustomRole = customRole)
+            fixed (byte* pStandardRole = standardRole)
+            fixed (byte* pGarbageFont = garbageFont)
+            fixed (byte* pValue0 = value0)
+            fixed (byte* pValue1 = value1)
+            {
+                Expect("link-invalid-page", NativeMethods.pdf_builder_add_link_url(state, 5, pUrl), -1);
+                Expect("link-url", NativeMethods.pdf_builder_add_link_url(state, 0, pUrl), 0);
+                Expect("link-page-negative", NativeMethods.pdf_builder_add_link_page(state, 0, -1), -1);
+                Expect("link-page", NativeMethods.pdf_builder_add_link_page(state, 0, 0), 0);
+                Expect("sticky-note", NativeMethods.pdf_builder_add_sticky_note(state, 0, pNote, 0), 0);
+                Expect("watermark", NativeMethods.pdf_builder_add_watermark(state, 0, pWatermark), 0);
+                Expect("footnote", NativeMethods.pdf_builder_add_footnote(state, 0, pReference, pNoteText), 0);
+                Expect("rect", NativeMethods.pdf_builder_add_rect(state, 0, 10f, 10f, 50f, 20f), 0);
+                Expect("line", NativeMethods.pdf_builder_add_line(state, 0, 0f, 0f, 10f, 10f), 0);
+                Expect("circle", NativeMethods.pdf_builder_add_circle(
+                    state, 0, 20f, 20f, 5f, 1, 0.5f, 0f, 0f, 0f,
+                    null, 0, 0f, 1, 1f, 0f, 0f), 0);
+                Expect("text-field-empty", NativeMethods.pdf_builder_add_text_field(
+                    state, 0, pEmpty, 0f, 0f, 10f, 10f, pEmpty), -1);
+                Expect("text-field", NativeMethods.pdf_builder_add_text_field(
+                    state, 0, pField, 0f, 0f, 10f, 10f, pEmpty), 0);
+                Expect("checkbox", NativeMethods.pdf_builder_add_checkbox(
+                    state, 0, pField, 0f, 0f, 10f, 10f, 1), 0);
+                Expect("push-button", NativeMethods.pdf_builder_add_push_button(
+                    state, 0, pField, 0f, 0f, 10f, 10f, pEmpty), 0);
+                Expect("signature-field", NativeMethods.pdf_builder_add_signature_field(
+                    state, 0, pField, 0f, 0f, 10f, 10f), 0);
+                Expect("tagged-on", NativeMethods.pdf_builder_set_tagged_pdf_ua1(state, 1), 0);
+                Expect("tagged-off", NativeMethods.pdf_builder_set_tagged_pdf_ua1(state, 0), 0);
+                Expect("language", NativeMethods.pdf_builder_set_language(state, pLanguage), 0);
+                Expect("role-map", NativeMethods.pdf_builder_add_role_map(state, pCustomRole, pStandardRole), 0);
+
+                observations.Add("stamp=" + NativeMethods.pdf_builder_add_stamp(state, 0, pStamp));
+                observations.Add("qr=" + NativeMethods.pdf_builder_add_qr_code(state, 0, pQr, 10f, 10f, 40f));
+                observations.Add("barcode=" + NativeMethods.pdf_builder_add_barcode(
+                    state, 0, 0, pBarcode, 10f, 10f, 100f, 30f));
+                observations.Add("combo=" + NativeMethods.pdf_builder_add_combo_box(
+                    state, 0, pField, 0f, 0f, 10f, 10f, pOptions, pSelected));
+                observations.Add("list=" + NativeMethods.pdf_builder_add_list_box(
+                    state, 0, pField, 0f, 0f, 10f, 10f, pOptions, pSelected, 0));
+                observations.Add("font-bytes=" + NativeMethods.pdf_builder_register_font_bytes(
+                    state, pFontName, pGarbageFont, garbageFont.Length));
+
+                byte** values = stackalloc byte*[2];
+                values[0] = pValue0;
+                values[1] = pValue1;
+                float* xs = stackalloc float[2];
+                xs[0] = 0f;
+                xs[1] = 20f;
+                float* ys = stackalloc float[2];
+                ys[0] = 0f;
+                ys[1] = 0f;
+                float* ws = stackalloc float[2];
+                ws[0] = 10f;
+                ws[1] = 10f;
+                float* hs = stackalloc float[2];
+                hs[0] = 10f;
+                hs[1] = 10f;
+                observations.Add("radio=" + NativeMethods.pdf_builder_add_radio_group(
+                    state, 0, pField, values, xs, ys, ws, hs, 2, pValue0));
+
+                (int status, int length) = BuildAndFree(state);
+                Expect("build", status, 0);
+                if (length <= 0)
+                {
+                    failures.Add("build-length");
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok(string.Join(", ", observations))
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult GraphicsArrayMismatch()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            // Two dash values but a declared length of eight.
+            float* dash = stackalloc float[2];
+            dash[0] = 1f;
+            dash[1] = 2f;
+
+            int stroke = NativeMethods.pdf_builder_add_stroke_rect(
+                state, 0, 0f, 0f, 10f, 10f, 1f, 0f, 0f, 0f, dash, 8, 0f);
+            int circle = NativeMethods.pdf_builder_add_circle(
+                state, 0, 10f, 10f, 5f, 1, 1f, 0f, 0f, 0f,
+                dash, 8, 0f, 0, 0f, 0f, 0f);
+            return ScenarioResult.Ok($"short dash arrays returned stroke={stroke}, circle={circle}");
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult FontRegistrationInvalid()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            byte[] name = Utf8("BadFont");
+            byte[] garbage = new byte[32];
+            fixed (byte* pName = name)
+            fixed (byte* pGarbage = garbage)
+            {
+                int registered = NativeMethods.pdf_builder_register_font_bytes(
+                    state, pName, pGarbage, garbage.Length);
+                if (registered != 0 && registered != -1)
+                {
+                    failures.Add("register=" + registered.ToString(CultureInfo.InvariantCulture));
+                }
+
+                int zero = NativeMethods.pdf_builder_register_font_bytes(state, pName, pGarbage, 0);
+                if (zero != -1)
+                {
+                    failures.Add("zero-len=" + zero.ToString(CultureInfo.InvariantCulture));
+                }
+
+                int nullData = NativeMethods.pdf_builder_register_font_bytes(state, pName, null, 1);
+                if (nullData != -1)
+                {
+                    failures.Add("null-data=" + nullData.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            (int status, int length) = BuildAndFree(state);
+            if (status != 0 || length <= 0)
+            {
+                failures.Add("build=" + status.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return failures.Count == 0
+                ? ScenarioResult.Ok("invalid font registration does not break the build")
+                : ScenarioResult.Fail(string.Join(", ", failures));
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
         }
     }
 
