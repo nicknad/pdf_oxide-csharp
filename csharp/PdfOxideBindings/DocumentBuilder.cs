@@ -248,6 +248,26 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Starts a streaming page builder that can insert page breaks while
+        /// writing content.
+        /// </summary>
+        /// <param name="size">The size of each page.</param>
+        /// <returns>A streaming page builder whose first page has been added.</returns>
+        /// <exception cref="ObjectDisposedException">Thrown when the builder has been disposed.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="size"/> is not a defined value.</exception>
+        public PdfStreamingPageBuilder BeginStreamingPage(PdfPageSize size = PdfPageSize.A4)
+        {
+            CheckDisposed();
+            int kind = (int)size;
+            if (kind < 0 || kind > (int)PdfPageSize.Custom)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Unknown page size.");
+            }
+
+            return new PdfStreamingPageBuilder(this, size);
+        }
+
+        /// <summary>
         /// Saves the document to a file.
         /// </summary>
         /// <param name="outputPath">The output file path.</param>
@@ -487,6 +507,195 @@ namespace PdfOxide
                     }
                 }
             }
+        }
+
+        internal void BeginStreamingTable(int pageIndex, PdfStreamingTableOptions options)
+        {
+            CheckDisposed();
+            ArgumentNullException.ThrowIfNull(options);
+            PdfStreamingColumn[] columns = options.Columns;
+            ArgumentNullException.ThrowIfNull(columns);
+            if (columns.Length == 0)
+            {
+                throw new ArgumentException("At least one column is required.", nameof(options));
+            }
+
+            var widths = new float[columns.Length];
+            var aligns = new int[columns.Length];
+            var encoded = new byte[columns.Length][];
+            for (int index = 0; index < columns.Length; index++)
+            {
+                PdfStreamingColumn? column = columns[index];
+                if (column is null)
+                {
+                    throw new ArgumentException("Columns must not be null.", nameof(options));
+                }
+                ArgumentException.ThrowIfNullOrEmpty(column.Header);
+                if (!float.IsFinite(column.Width) || column.Width <= 0f)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(options), column.Width, "Column widths must be positive finite numbers.");
+                }
+                if (!Enum.IsDefined(column.Alignment))
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(options), column.Alignment, "Unknown cell alignment.");
+                }
+
+                widths[index] = column.Width;
+                aligns[index] = (int)column.Alignment;
+                encoded[index] = Utf8(column.Header);
+            }
+
+            if (!float.IsFinite(options.GridWidth) || options.GridWidth < 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options), options.GridWidth, "Grid width must be a non-negative finite number.");
+            }
+            ValidatePadding(options.CellPaddingHorizontal, nameof(options));
+            ValidatePadding(options.CellPaddingTop, nameof(options));
+            ValidatePadding(options.CellPaddingBottom, nameof(options));
+            if (options.MaxRowspan < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options), options.MaxRowspan, "MaxRowspan must be at least 1.");
+            }
+            if (options.GridColor is { } gridColor)
+            {
+                ValidateColor(gridColor, nameof(options));
+            }
+            if (options.HeaderFill is { } headerFillColor)
+            {
+                ValidateColor(headerFillColor, nameof(options));
+            }
+
+            bool hasHeaderFill = options.HeaderFill.HasValue;
+            PdfColor headerFill = options.HeaderFill ?? default;
+            bool hasGrid = options.GridColor.HasValue;
+            PdfColor grid = options.GridColor ?? default;
+
+            var handles = new GCHandle[encoded.Length];
+            var pointers = new byte*[encoded.Length];
+            try
+            {
+                for (int index = 0; index < encoded.Length; index++)
+                {
+                    handles[index] = GCHandle.Alloc(encoded[index], GCHandleType.Pinned);
+                    pointers[index] = (byte*)handles[index].AddrOfPinnedObject();
+                }
+
+                fixed (byte** pHeaders = pointers)
+                fixed (float* pWidths = widths)
+                fixed (int* pAligns = aligns)
+                {
+                    ThrowIfFailed(NativeMethods.pdf_builder_streaming_table_begin(
+                        _state,
+                        pageIndex,
+                        pHeaders,
+                        pWidths,
+                        pAligns,
+                        columns.Length,
+                        options.RepeatHeader ? 1 : 0,
+                        hasHeaderFill ? 1 : 0,
+                        headerFill.R,
+                        headerFill.G,
+                        headerFill.B,
+                        hasGrid ? 1 : 0,
+                        grid.R,
+                        grid.G,
+                        grid.B,
+                        options.GridWidth,
+                        options.CellPaddingHorizontal,
+                        options.CellPaddingTop,
+                        options.CellPaddingBottom,
+                        options.MaxRowspan));
+                }
+            }
+            finally
+            {
+                foreach (GCHandle handle in handles)
+                {
+                    if (handle.IsAllocated)
+                    {
+                        handle.Free();
+                    }
+                }
+            }
+        }
+
+        internal void AddStreamingTableRow(int pageIndex, string[] cells, int[]? rowspans)
+        {
+            CheckDisposed();
+            ArgumentNullException.ThrowIfNull(cells);
+            if (cells.Length == 0)
+            {
+                throw new ArgumentException("A row must contain at least one cell.", nameof(cells));
+            }
+            if (rowspans is not null && rowspans.Length != cells.Length)
+            {
+                throw new ArgumentException(
+                    "Rowspans must match the number of cells.", nameof(rowspans));
+            }
+
+            var encoded = new byte[cells.Length][];
+            for (int index = 0; index < cells.Length; index++)
+            {
+                string? cell = cells[index];
+                if (cell is null)
+                {
+                    throw new ArgumentException("Table cells must not be null.", nameof(cells));
+                }
+                encoded[index] = Utf8(cell);
+            }
+
+            var handles = new GCHandle[encoded.Length];
+            var pointers = new byte*[encoded.Length];
+            try
+            {
+                for (int index = 0; index < encoded.Length; index++)
+                {
+                    handles[index] = GCHandle.Alloc(encoded[index], GCHandleType.Pinned);
+                    pointers[index] = (byte*)handles[index].AddrOfPinnedObject();
+                }
+
+                fixed (byte** pCells = pointers)
+                fixed (int* pRowspans = rowspans)
+                {
+                    ThrowIfFailed(NativeMethods.pdf_builder_streaming_table_add_row(
+                        _state, pCells, pRowspans, cells.Length));
+                }
+            }
+            finally
+            {
+                foreach (GCHandle handle in handles)
+                {
+                    if (handle.IsAllocated)
+                    {
+                        handle.Free();
+                    }
+                }
+            }
+        }
+
+        internal void EndStreamingTable(int pageIndex)
+        {
+            CheckDisposed();
+            ThrowIfFailed(NativeMethods.pdf_builder_streaming_table_end(_state));
+        }
+
+        internal PdfPageBuilder AddPageLike(int referencePageIndex)
+        {
+            CheckDisposed();
+            ArgumentOutOfRangeException.ThrowIfNegative(referencePageIndex);
+
+            int pageIndex = NativeMethods.pdf_builder_add_page_like(_state, referencePageIndex);
+            if (pageIndex < 0)
+            {
+                throw new PdfOxideException(GetLastError());
+            }
+
+            _pageCount = Math.Max(_pageCount, pageIndex + 1);
+            return new PdfPageBuilder(this, pageIndex);
         }
 
         internal void AddImage(int pageIndex, string path, PdfRect rect, string? altText)
@@ -1103,6 +1312,24 @@ namespace PdfOxide
                     style.FillColor?.R ?? 0f,
                     style.FillColor?.G ?? 0f,
                     style.FillColor?.B ?? 0f));
+            }
+        }
+
+        private static void ValidatePadding(float value, string parameterName)
+        {
+            if (!float.IsFinite(value) || value < 0f)
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName, value, "Cell padding must be a non-negative finite number.");
+            }
+        }
+
+        private static void ValidateColor(PdfColor color, string parameterName)
+        {
+            if (!float.IsFinite(color.R) || !float.IsFinite(color.G) || !float.IsFinite(color.B))
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName, color, "Color components must be finite numbers.");
             }
         }
 

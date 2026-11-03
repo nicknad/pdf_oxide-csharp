@@ -34,9 +34,10 @@ use pdf_oxide::geometry::Rect;
 use pdf_oxide::layout::{Color, TextChar, TextLine, TextSpan, Word};
 use pdf_oxide::outline::{Destination, OutlineItem};
 use pdf_oxide::writer::{
-    DocumentBuilder as PdfWriterBuilder, EmbeddedFont, FluentPageBuilder, LineStyle, LinkAnnotation,
-    ListStyle, PageSize, StampType, Table, TableCell, TableRow, TableStyle, TextAnnotation,
-    TextMarkupAnnotation, TextRun, TextRunStyle, WatermarkAnnotation,
+    CellAlign, DocumentBuilder as PdfWriterBuilder, EmbeddedFont, FluentPageBuilder, LineStyle,
+    LinkAnnotation, ListStyle, PageSize, StampType, StreamingColumn, StreamingTableConfig, Table,
+    TableCell, TableRow, TableStyle, TextAnnotation, TextMarkupAnnotation, TextRun, TextRunStyle,
+    WatermarkAnnotation,
 };
 use pdf_oxide::{TextAnnotationIcon, TextMarkupType};
 use serde::Serialize;
@@ -393,11 +394,22 @@ enum BuilderOp {
         stroke: Option<(f32, f32, f32, f32, Vec<f32>, f32)>,
         fill: Option<(f32, f32, f32)>,
     },
+    StreamingTable {
+        config: StreamingTableConfig,
+        rows: Vec<Vec<(String, usize)>>,
+    },
 }
 
 struct PageSpec {
     kind: PageKind,
     ops: Vec<BuilderOp>,
+}
+
+struct PendingStreamingTable {
+    page_index: usize,
+    config: StreamingTableConfig,
+    column_count: usize,
+    rows: Vec<Vec<(String, usize)>>,
 }
 
 #[derive(Default)]
@@ -424,6 +436,7 @@ pub struct PdfBuilderState {
     tagged: bool,
     language: Option<String>,
     role_map: Vec<(String, String)>,
+    streaming_table: Option<PendingStreamingTable>,
 }
 
 impl PdfBuilderState {
@@ -441,6 +454,14 @@ impl PdfBuilderState {
     }
 
     fn build_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        if self.streaming_table.is_some() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "finish the streaming table before saving",
+            )
+            .into());
+        }
+
         let mut document = PdfWriterBuilder::new();
         if let Some(value) = &self.metadata.title {
             document = document.title(value);
@@ -581,6 +602,21 @@ fn render_op<'a>(
                 _ => table,
             };
             page = page.table(table);
+        }
+        BuilderOp::StreamingTable { config, rows } => {
+            let mut table = page.streaming_table(config.clone());
+            for row in rows {
+                table.push_row(|r| {
+                    for (text, span) in row {
+                        if *span > 1 {
+                            r.span_cell(text.clone(), *span);
+                        } else {
+                            r.cell(text.clone());
+                        }
+                    }
+                })?;
+            }
+            page = table.finish();
         }
         BuilderOp::Image {
             data,
@@ -2291,6 +2327,7 @@ pub extern "C" fn pdf_builder_create() -> *mut PdfBuilderState {
         tagged: false,
         language: None,
         role_map: Vec::new(),
+        streaming_table: None,
     }))
 }
 
@@ -2733,6 +2770,239 @@ pub unsafe extern "C" fn pdf_builder_add_table(
         });
         Ok(())
     })
+}
+
+fn cell_align_from_code(align: i32) -> Result<CellAlign, Box<dyn std::error::Error>> {
+    match align {
+        0 => Ok(CellAlign::Left),
+        1 => Ok(CellAlign::Center),
+        2 => Ok(CellAlign::Right),
+        other => Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!("unknown cell alignment code: {other}"),
+        )
+        .into()),
+    }
+}
+
+/// Begin a streaming table on a page.
+///
+/// `headers` is a length-`column_count` array of null-terminated C strings;
+/// `widths` and `aligns` are length-`column_count` arrays (aligns: 0=Left,
+/// 1=Center, 2=Right). Rows are appended with
+/// `pdf_builder_streaming_table_add_row` and the table is committed with
+/// `pdf_builder_streaming_table_end`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_streaming_table_begin(
+    state: *mut PdfBuilderState,
+    page_index: i32,
+    headers: *const *const c_char,
+    widths: *const f32,
+    aligns: *const i32,
+    column_count: i32,
+    repeat_header: i32,
+    header_fill_flag: i32,
+    hr: f32,
+    hg: f32,
+    hb: f32,
+    grid_flag: i32,
+    gr: f32,
+    gg: f32,
+    gb: f32,
+    grid_width: f32,
+    pad_h: f32,
+    pad_top: f32,
+    pad_bottom: f32,
+    max_rowspan: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        let page_index = page_index_from_i32(page_index)?;
+        if state.streaming_table.is_some() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "a streaming table is already open",
+            )
+            .into());
+        }
+        if column_count <= 0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "column count must be positive",
+            )
+            .into());
+        }
+        if headers.is_null() || widths.is_null() || aligns.is_null() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "streaming table column arrays must not be null",
+            )
+            .into());
+        }
+        if page_index >= state.pages.len() {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!("page index {page_index} is out of range"),
+            )
+            .into());
+        }
+
+        let count = column_count as usize;
+        let widths_slice = unsafe { std::slice::from_raw_parts(widths, count) };
+        let aligns_slice = unsafe { std::slice::from_raw_parts(aligns, count) };
+        let headers_slice = unsafe { std::slice::from_raw_parts(headers, count) };
+
+        let mut config = StreamingTableConfig::new();
+        for index in 0..count {
+            let width = widths_slice[index];
+            if !width.is_finite() || width <= 0.0 {
+                return Err(IoError::new(
+                    ErrorKind::InvalidInput,
+                    "column widths must be positive finite numbers",
+                )
+                .into());
+            }
+            let align = cell_align_from_code(aligns_slice[index])?;
+            let header = c_string_to_string(headers_slice[index], "column header")?;
+            config = config.column(
+                StreamingColumn::new(header)
+                    .width_pt(width)
+                    .align(align),
+            );
+        }
+
+        config = config.repeat_header(repeat_header != 0);
+        config = config.header_fill(if header_fill_flag != 0 {
+            Some((hr, hg, hb))
+        } else {
+            None
+        });
+        config = if grid_flag != 0 {
+            config.grid((gr, gg, gb), grid_width)
+        } else {
+            config.grid((0.0, 0.0, 0.0), 0.0)
+        };
+        config = config.cell_padding(pad_h, pad_top, pad_bottom);
+        config = config.max_rowspan(usize::try_from(max_rowspan).unwrap_or(1));
+
+        state.streaming_table = Some(PendingStreamingTable {
+            page_index,
+            config,
+            column_count: count,
+            rows: Vec::new(),
+        });
+        Ok(())
+    })
+}
+
+/// Append a row to the open streaming table. `cells` is a length-`count`
+/// array of null-terminated C strings; `rowspans` may be null (all cells span
+/// one row) or provide a rowspan per cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdf_builder_streaming_table_add_row(
+    state: *mut PdfBuilderState,
+    cells: *const *const c_char,
+    rowspans: *const i32,
+    count: i32,
+) -> i32 {
+    with_builder(state, |state| {
+        if cells.is_null() {
+            return Err(
+                IoError::new(ErrorKind::InvalidInput, "table cells must not be null").into(),
+            );
+        }
+        if count <= 0 {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                "cell count must be positive",
+            )
+            .into());
+        }
+
+        let pending = state.streaming_table.as_mut().ok_or_else(|| {
+            IoError::new(ErrorKind::InvalidInput, "no streaming table is open")
+        })?;
+        let count = count as usize;
+        if count != pending.column_count {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "row has {count} cells, expected {}",
+                    pending.column_count
+                ),
+            )
+            .into());
+        }
+
+        let cells_slice = unsafe { std::slice::from_raw_parts(cells, count) };
+        let mut row = Vec::with_capacity(count);
+        for index in 0..count {
+            let text = c_string_to_string(cells_slice[index], "table cell")?;
+            let span = if rowspans.is_null() {
+                1
+            } else {
+                let raw = unsafe { *rowspans.add(index) };
+                usize::try_from(raw).unwrap_or(1)
+            };
+            row.push((text, span.max(1)));
+        }
+        pending.rows.push(row);
+        Ok(())
+    })
+}
+
+/// Commit the open streaming table into its page's operation list.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_streaming_table_end(state: *mut PdfBuilderState) -> i32 {
+    with_builder(state, |state| {
+        let pending = state.streaming_table.take().ok_or_else(|| {
+            IoError::new(ErrorKind::InvalidInput, "no streaming table is open")
+        })?;
+        state
+            .page_mut(pending.page_index)?
+            .ops
+            .push(BuilderOp::StreamingTable {
+                config: pending.config,
+                rows: pending.rows,
+            });
+        Ok(())
+    })
+}
+
+/// Add a page with the same kind as the reference page and return its index.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdf_builder_add_page_like(
+    state: *mut PdfBuilderState,
+    reference_page_index: i32,
+) -> i32 {
+    let result = (|| -> Result<i32, Box<dyn std::error::Error>> {
+        let state = builder_mut(state)?;
+        let reference = page_index_from_i32(reference_page_index)?;
+        let kind = state
+            .pages
+            .get(reference)
+            .ok_or_else(|| {
+                IoError::new(
+                    ErrorKind::InvalidInput,
+                    format!("page index {reference} is out of range"),
+                )
+            })?
+            .kind;
+        let new_index = state.pages.len();
+        state.pages.push(PageSpec {
+            kind,
+            ops: Vec::new(),
+        });
+        i32::try_from(new_index)
+            .map_err(|_| IoError::new(ErrorKind::InvalidInput, "page index is too large").into())
+    })();
+
+    match result {
+        Ok(index) => index,
+        Err(e) => {
+            set_last_error(e);
+            -1
+        }
+    }
 }
 
 /// Add an image file at a rectangle. `alt` may be null.

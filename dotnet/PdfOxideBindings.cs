@@ -373,6 +373,38 @@ namespace PdfOxide
         internal static extern int pdf_builder_add_table(PdfBuilderState* state, int page_index, byte** cells, int rows, int cols, int header, int style);
 
         /// <summary>
+        ///  Begin a streaming table on a page.
+        ///
+        ///  `headers` is a length-`column_count` array of null-terminated C strings;
+        ///  `widths` and `aligns` are length-`column_count` arrays (aligns: 0=Left,
+        ///  1=Center, 2=Right). Rows are appended with
+        ///  `pdf_builder_streaming_table_add_row` and the table is committed with
+        ///  `pdf_builder_streaming_table_end`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_streaming_table_begin", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_streaming_table_begin(PdfBuilderState* state, int page_index, byte** headers, float* widths, int* aligns, int column_count, int repeat_header, int header_fill_flag, float hr, float hg, float hb, int grid_flag, float gr, float gg, float gb, float grid_width, float pad_h, float pad_top, float pad_bottom, int max_rowspan);
+
+        /// <summary>
+        ///  Append a row to the open streaming table. `cells` is a length-`count`
+        ///  array of null-terminated C strings; `rowspans` may be null (all cells span
+        ///  one row) or provide a rowspan per cell.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_streaming_table_add_row", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_streaming_table_add_row(PdfBuilderState* state, byte** cells, int* rowspans, int count);
+
+        /// <summary>
+        ///  Commit the open streaming table into its page's operation list.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_streaming_table_end", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_streaming_table_end(PdfBuilderState* state);
+
+        /// <summary>
+        ///  Add a page with the same kind as the reference page and return its index.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "pdf_builder_add_page_like", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int pdf_builder_add_page_like(PdfBuilderState* state, int reference_page_index);
+
+        /// <summary>
         ///  Add an image file at a rectangle. `alt` may be null.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_builder_add_image_file", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

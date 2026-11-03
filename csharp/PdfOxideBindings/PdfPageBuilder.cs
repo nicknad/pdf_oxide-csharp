@@ -1017,6 +1017,29 @@ namespace PdfOxide
             return this;
         }
 
+        /// <summary>
+        /// Opens a streaming table on this page. Rows are added through the
+        /// returned <see cref="PdfStreamingTable"/>, which paginates
+        /// automatically and can repeat its header across pages.
+        /// </summary>
+        /// <param name="options">The table options.</param>
+        /// <returns>A handle used to append rows and finish the table.</returns>
+        public PdfStreamingTable StreamingTable(PdfStreamingTableOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+            return new PdfStreamingTable(_owner, _pageIndex, this, options);
+        }
+
+        /// <summary>
+        /// Adds a new page with the same size as this page and returns a
+        /// builder for its content.
+        /// </summary>
+        /// <returns>A builder for the new page.</returns>
+        public PdfPageBuilder NewPageSameSize()
+        {
+            return _owner.AddPageLike(_pageIndex);
+        }
+
         private static void ValidateFinite(float value, string parameterName)
         {
             if (!float.IsFinite(value))

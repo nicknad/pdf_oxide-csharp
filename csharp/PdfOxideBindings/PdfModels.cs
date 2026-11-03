@@ -634,4 +634,105 @@ namespace PdfOxide
 
         internal int ColumnCount => _rows[0].Length;
     }
+
+    /// <summary>
+    /// Horizontal alignment for a streaming-table cell.
+    /// </summary>
+    public enum PdfCellAlignment
+    {
+        /// <summary>Align cell content to the left.</summary>
+        Left = 0,
+        /// <summary>Center cell content.</summary>
+        Center = 1,
+        /// <summary>Align cell content to the right.</summary>
+        Right = 2,
+    }
+
+    /// <summary>
+    /// One column in a streaming table.
+    /// </summary>
+    public sealed record PdfStreamingColumn
+    {
+        /// <summary>
+        /// Gets the column heading. Rendered at the top of the table and on
+        /// every page when the header is repeated.
+        /// </summary>
+        public required string Header { get; init; }
+
+        /// <summary>
+        /// Gets the column width in points. Defaults to 100.
+        /// </summary>
+        public float Width { get; init; } = 100f;
+
+        /// <summary>
+        /// Gets the default horizontal alignment for cells in this column.
+        /// </summary>
+        public PdfCellAlignment Alignment { get; init; }
+    }
+
+    /// <summary>
+    /// A cell in a streaming-table row, optionally spanning multiple rows.
+    /// </summary>
+    /// <param name="Text">The cell text.</param>
+    /// <param name="RowSpan">The number of rows this cell spans. Defaults to 1.</param>
+    public sealed record PdfStreamingCell(string Text, int RowSpan = 1);
+
+    /// <summary>
+    /// Options for a streaming table. The table paginates automatically and
+    /// can repeat its header across pages.
+    /// </summary>
+    public sealed record PdfStreamingTableOptions
+    {
+        /// <summary>
+        /// Gets the table columns.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage(
+            "Performance",
+            "CA1819:Properties should not return arrays",
+            Justification = "A column list is a small value-like option bag.")]
+        public required PdfStreamingColumn[] Columns { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the header row is repeated at the
+        /// top of every page the table spans. Defaults to <see langword="true"/>.
+        /// </summary>
+        public bool RepeatHeader { get; init; } = true;
+
+        /// <summary>
+        /// Gets the header background fill, or <see langword="null"/> for no fill.
+        /// Defaults to a light gray.
+        /// </summary>
+        public PdfColor? HeaderFill { get; init; } = new(0.93f, 0.93f, 0.93f);
+
+        /// <summary>
+        /// Gets the grid line color, or <see langword="null"/> to suppress
+        /// grid lines. Defaults to light gray.
+        /// </summary>
+        public PdfColor? GridColor { get; init; } = new(0.8f, 0.8f, 0.8f);
+
+        /// <summary>
+        /// Gets the grid line width in points. Defaults to 0.5.
+        /// </summary>
+        public float GridWidth { get; init; } = 0.5f;
+
+        /// <summary>
+        /// Gets the horizontal cell padding in points. Defaults to 4.
+        /// </summary>
+        public float CellPaddingHorizontal { get; init; } = 4f;
+
+        /// <summary>
+        /// Gets the top cell padding in points. Defaults to 2.
+        /// </summary>
+        public float CellPaddingTop { get; init; } = 2f;
+
+        /// <summary>
+        /// Gets the bottom cell padding in points. Defaults to 2.
+        /// </summary>
+        public float CellPaddingBottom { get; init; } = 2f;
+
+        /// <summary>
+        /// Gets the maximum rowspan allowed for cells. Defaults to 1 (disabled).
+        /// </summary>
+        public int MaxRowspan { get; init; } = 1;
+    }
 }
