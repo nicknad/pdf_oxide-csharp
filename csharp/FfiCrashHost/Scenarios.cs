@@ -38,6 +38,10 @@ internal static class Scenarios
         ["page-index-extremes"] = _ => PageIndexExtremes(),
         ["empty-pdf-build"] = _ => EmptyPdfBuild(),
         ["reuse-after-save"] = _ => ReuseAfterSave(),
+        ["streaming-state-machine"] = _ => StreamingStateMachine(),
+        ["streaming-abandoned"] = _ => StreamingAbandoned(),
+        ["streaming-column-validation"] = _ => StreamingColumnValidation(),
+        ["add-page-like-extremes"] = _ => AddPageLikeExtremes(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -490,6 +494,304 @@ internal static class Scenarios
         finally
         {
             NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Streaming table / same-size page scenarios (N1-N3, N8)
+    // ---------------------------------------------------------------------
+
+    private static unsafe ScenarioResult StreamingStateMachine()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            void Expect(string name, int actual, int expected)
+            {
+                if (actual != expected)
+                {
+                    failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                        + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            Expect("end-without-begin", NativeMethods.pdf_builder_streaming_table_end(state), -1);
+            Expect("row-without-begin", AddStreamingRow(state, "a", "b"), -1);
+            Expect("begin", BeginStreamingTable(state, 0, "H1", "H2", 100f, 100f, 0, 1), 0);
+            Expect("begin-twice", BeginStreamingTable(state, 0, "H1", "H2", 100f, 100f, 0, 1), -1);
+            Expect("add-row", AddStreamingRow(state, "a", "b"), 0);
+            Expect("end", NativeMethods.pdf_builder_streaming_table_end(state), 0);
+            Expect("end-twice", NativeMethods.pdf_builder_streaming_table_end(state), -1);
+
+            (int status, int length) = BuildAndFree(state);
+            Expect("build-after-end", status, 0);
+            if (length <= 0)
+            {
+                failures.Add("build-length");
+            }
+
+            return failures.Count == 0
+                ? ScenarioResult.Ok("streaming state machine rejected invalid transitions")
+                : ScenarioResult.Fail(string.Join(", ", failures));
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult StreamingAbandoned()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            if (BeginStreamingTable(state, 0, "H1", "H2", 100f, 100f, 0, 0) != 0 ||
+                AddStreamingRow(state, "a", "b") != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "streaming setup failed");
+            }
+
+            byte* data = null;
+            int length = 0;
+            int buildWhileOpen = NativeMethods.pdf_builder_build(state, &data, &length);
+            if (buildWhileOpen != -1)
+            {
+                return ScenarioResult.Fail($"build should fail while open, got {buildWhileOpen}");
+            }
+
+            string? openError = TakeLastError();
+            if (openError is null || !openError.Contains("streaming table", StringComparison.Ordinal))
+            {
+                return ScenarioResult.Fail("missing streaming-table error: " + (openError ?? "<null>"));
+            }
+
+            string path = TempPath("streaming");
+            int saveWhileOpen = SaveBuilder(state, path);
+            TryDelete(path);
+            if (saveWhileOpen != -1)
+            {
+                return ScenarioResult.Fail($"save should fail while open, got {saveWhileOpen}");
+            }
+
+            if (NativeMethods.pdf_builder_streaming_table_end(state) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "end failed");
+            }
+
+            (int status, int builtLength) = BuildAndFree(state);
+            return status == 0 && builtLength > 0
+                ? ScenarioResult.Ok($"blocked while open; built {builtLength} bytes after end")
+                : ScenarioResult.Fail(TakeLastError() ?? "build after end failed");
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult StreamingColumnValidation()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            void Expect(string name, int actual, int expected)
+            {
+                if (actual != expected)
+                {
+                    failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                        + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            byte[] header = Utf8("H");
+            fixed (byte* pHeader = header)
+            {
+                float* widths = stackalloc float[1];
+                widths[0] = 100f;
+                int* aligns = stackalloc int[1];
+                aligns[0] = 0;
+
+                Expect("zero-columns", BeginStreamingTableRaw(state, 0, &pHeader, widths, aligns, 0), -1);
+                Expect("negative-page", BeginStreamingTableRaw(state, -1, &pHeader, widths, aligns, 1), -1);
+                Expect("out-of-range-page", BeginStreamingTableRaw(state, 1, &pHeader, widths, aligns, 1), -1);
+                Expect("null-headers", BeginStreamingTableRaw(state, 0, null, widths, aligns, 1), -1);
+                Expect("null-widths", BeginStreamingTableRaw(state, 0, &pHeader, null, aligns, 1), -1);
+                Expect("null-aligns", BeginStreamingTableRaw(state, 0, &pHeader, widths, null, 1), -1);
+            }
+
+            Expect("nan-width", BeginStreamingTable(state, 0, "H1", "H2", float.NaN, 100f, 0, 0), -1);
+            Expect("bad-align", BeginStreamingTable(state, 0, "H1", "H2", 100f, 100f, 99, 0), -1);
+            Expect("begin", BeginStreamingTable(state, 0, "H1", "H2", 100f, 100f, 0, 1), 0);
+            Expect("short-row", AddStreamingRowSingle(state, "only-one"), -1);
+            Expect("valid-row", AddStreamingRow(state, "a", "b"), 0);
+            Expect("end", NativeMethods.pdf_builder_streaming_table_end(state), 0);
+
+            (int status, int length) = BuildAndFree(state);
+            Expect("build", status, 0);
+            if (length <= 0)
+            {
+                failures.Add("build-length");
+            }
+
+            return failures.Count == 0
+                ? ScenarioResult.Ok("streaming column/row validation is enforced")
+                : ScenarioResult.Fail(string.Join(", ", failures));
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult AddPageLikeExtremes()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var failures = new List<string>();
+            void Expect(string name, int actual, int expected)
+            {
+                if (actual != expected)
+                {
+                    failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                        + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            Expect("negative", NativeMethods.pdf_builder_add_page_like(state, -1), -1);
+            Expect("too-large", NativeMethods.pdf_builder_add_page_like(state, int.MaxValue), -1);
+            Expect("valid", NativeMethods.pdf_builder_add_page_like(state, 0), 1);
+            Expect("count", NativeMethods.pdf_builder_get_page_count(state), 2);
+
+            return failures.Count == 0
+                ? ScenarioResult.Ok("add_page_like rejects invalid references")
+                : ScenarioResult.Fail(string.Join(", ", failures));
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe int BeginStreamingTable(
+        PdfBuilderState* state,
+        int pageIndex,
+        string firstHeader,
+        string secondHeader,
+        float firstWidth,
+        float secondWidth,
+        int firstAlign,
+        int secondAlign)
+    {
+        byte[] h0 = Utf8(firstHeader);
+        byte[] h1 = Utf8(secondHeader);
+        fixed (byte* p0 = h0)
+        fixed (byte* p1 = h1)
+        {
+            byte** headers = stackalloc byte*[2];
+            headers[0] = p0;
+            headers[1] = p1;
+
+            float* widths = stackalloc float[2];
+            widths[0] = firstWidth;
+            widths[1] = secondWidth;
+
+            int* aligns = stackalloc int[2];
+            aligns[0] = firstAlign;
+            aligns[1] = secondAlign;
+
+            return NativeMethods.pdf_builder_streaming_table_begin(
+                state, pageIndex, headers, widths, aligns, 2,
+                1, 1, 0.9f, 0.9f, 0.9f,
+                1, 0.8f, 0.8f, 0.8f, 0.5f,
+                4f, 2f, 2f, 2);
+        }
+    }
+
+    private static unsafe int BeginStreamingTableRaw(
+        PdfBuilderState* state,
+        int pageIndex,
+        byte** headers,
+        float* widths,
+        int* aligns,
+        int columnCount)
+    {
+        return NativeMethods.pdf_builder_streaming_table_begin(
+            state, pageIndex, headers, widths, aligns, columnCount,
+            0, 0, 0f, 0f, 0f,
+            0, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 1);
+    }
+
+    private static unsafe int AddStreamingRow(PdfBuilderState* state, string first, string second)
+    {
+        byte[] c0 = Utf8(first);
+        byte[] c1 = Utf8(second);
+        fixed (byte* p0 = c0)
+        fixed (byte* p1 = c1)
+        {
+            byte** cells = stackalloc byte*[2];
+            cells[0] = p0;
+            cells[1] = p1;
+
+            int* rowspans = stackalloc int[2];
+            rowspans[0] = 1;
+            rowspans[1] = 1;
+
+            return NativeMethods.pdf_builder_streaming_table_add_row(state, cells, rowspans, 2);
+        }
+    }
+
+    private static unsafe int AddStreamingRowSingle(PdfBuilderState* state, string text)
+    {
+        byte[] encoded = Utf8(text);
+        fixed (byte* pointer = encoded)
+        {
+            byte** cells = stackalloc byte*[1];
+            cells[0] = pointer;
+            return NativeMethods.pdf_builder_streaming_table_add_row(state, cells, null, 1);
         }
     }
 

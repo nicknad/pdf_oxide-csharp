@@ -8,6 +8,9 @@ refuses to run while one is open (`rust/src/lib.rs:456-463`). Four new exports:
 `PdfStreamingTable` has no `Dispose`/finalizer and marks itself finished before
 calling the native end.
 
+Status: N1-N3 and N8 are implemented in `FfiCrashHost` and covered by
+`FfiCrashHostTests`; the remaining scenarios are design-only.
+
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |
 | N1 | Streaming state machine | Begin twice, end without begin, add a row without begin, end twice; then begin/add/end a valid table | There is one `Option<PendingStreamingTable>` per builder (`rust/src/lib.rs:439`, `:2820-2826`, `:2921-2923`, `:2957-2959`) |

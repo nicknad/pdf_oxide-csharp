@@ -92,6 +92,38 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestStreamingStateMachine()
+    {
+        CrashHostResult result = CrashHostRunner.Run("streaming-state-machine");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestAbandonedStreamingTableBlocksSaveAndBuild()
+    {
+        CrashHostResult result = CrashHostRunner.Run("streaming-abandoned");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestStreamingColumnValidation()
+    {
+        CrashHostResult result = CrashHostRunner.Run("streaming-column-validation");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestAddPageLikeExtremes()
+    {
+        CrashHostResult result = CrashHostRunner.Run("add-page-like-extremes");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestPanicHookTerminatesTheProcess()
     {
         CrashHostResult result = CrashHostRunner.Run("panic-hook", "0");
