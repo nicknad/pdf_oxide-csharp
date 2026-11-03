@@ -6,8 +6,8 @@ shim boxes an upstream `DocumentEditor`, and C# frees it with the upstream
 `document_editor_free` (`csharp/PdfOxideBindings/PdfEditor.cs:1194`). The wrapper
 serializes calls with a per-instance lock; raw native callers do not.
 
-Status: K1-K7 are implemented in `FfiCrashHost` and covered by `FfiCrashHostTests`;
-the remaining scenarios are design-only.
+Status: K1-K8 and K10-K12 are implemented in `FfiCrashHost`; K9 and shared-handle
+concurrency cases run as crash-oracle scenarios.
 
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |

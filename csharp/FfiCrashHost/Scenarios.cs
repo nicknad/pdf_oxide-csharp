@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using PdfOxide;
 
 namespace FfiCrashHost;
@@ -56,6 +58,14 @@ internal static class Scenarios
         ["builder-extension-validation"] = _ => BuilderExtensionValidation(),
         ["graphics-array-mismatch"] = _ => GraphicsArrayMismatch(),
         ["font-registration-invalid"] = _ => FontRegistrationInvalid(),
+        ["editor-redaction"] = _ => EditorRedaction(),
+        ["editor-concurrent-read"] = _ => EditorConcurrentRead(),
+        ["editor-save-invalid-path"] = _ => EditorSaveInvalidPath(),
+        ["builder-large-state"] = _ => BuilderLargeState(),
+        ["forms-flatten-roundtrip"] = _ => FormsFlattenRoundtrip(),
+        ["signing-roundtrip"] = _ => SigningRoundtrip(),
+        ["editor-dispose-race"] = _ => EditorDisposeRace(),
+        ["builder-concurrent-writes"] = _ => BuilderConcurrentWrites(),
         ["panic-hook"] = PanicHook,
     };
 
@@ -1073,6 +1083,522 @@ internal static class Scenarios
         fixed (byte* pOutput = output)
         {
             return NativeMethods.pdf_from_text(pText, pOutput) == 0 && File.Exists(path);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Remaining editor / signing / large-state scenarios (K8-K12, L2/L4, M3/M10)
+    // ---------------------------------------------------------------------
+
+    private static unsafe ScenarioResult EditorRedaction()
+    {
+        string path = TempPath("editor-redaction");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                var failures = new List<string>();
+                void Expect(string name, int actual, int expected)
+                {
+                    if (actual != expected)
+                    {
+                        failures.Add(name + "=" + actual.ToString(CultureInfo.InvariantCulture)
+                            + " expected " + expected.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+
+                int error = 0;
+                Expect("add", UpstreamNativeMethods.pdf_redaction_add(
+                    editor, 0, 10, 10, 50, 20, 0, 0, 0, &error), 0);
+                Expect("add-invalid-page", UpstreamNativeMethods.pdf_redaction_add(
+                    editor, 5, 10, 10, 50, 20, 0, 0, 0, &error), -1);
+                Expect("count", UpstreamNativeMethods.pdf_redaction_count(editor, 0, &error), 1);
+                Expect("apply-page", UpstreamNativeMethods.document_editor_apply_page_redactions(
+                    editor, 0, &error), 0);
+                Expect("scrub", UpstreamNativeMethods.pdf_redaction_scrub_metadata(editor, &error), 0);
+
+                nuint length = 0;
+                byte* bytes = UpstreamNativeMethods.document_editor_save_to_bytes(editor, &length, &error);
+                if (bytes == null || length == 0)
+                {
+                    failures.Add("save");
+                }
+                if (bytes != null)
+                {
+                    UpstreamNativeMethods.free_bytes(bytes);
+                }
+
+                return failures.Count == 0
+                    ? ScenarioResult.Ok("redaction add/apply/scrub succeeded")
+                    : ScenarioResult.Fail(string.Join(", ", failures));
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorConcurrentRead()
+    {
+        string path = TempPath("editor-concurrent");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            var failures = new ConcurrentBag<string>();
+            var threads = new Thread[4];
+            for (int index = 0; index < threads.Length; index++)
+            {
+                threads[index] = new Thread(() =>
+                {
+                    if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+                    {
+                        failures.Add("open=" + openError.ToString(CultureInfo.InvariantCulture));
+                        return;
+                    }
+
+                    try
+                    {
+                        for (int iteration = 0; iteration < 50; iteration++)
+                        {
+                            int error = 0;
+                            int count = UpstreamNativeMethods.document_editor_get_page_count(editor, &error);
+                            if (count != 1 || error != 0)
+                            {
+                                failures.Add("count=" + count.ToString(CultureInfo.InvariantCulture)
+                                    + ",error=" + error.ToString(CultureInfo.InvariantCulture));
+                                return;
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        UpstreamNativeMethods.document_editor_free(editor);
+                    }
+                });
+                threads[index].Start();
+            }
+
+            foreach (Thread thread in threads)
+            {
+                thread.Join();
+            }
+
+            return failures.IsEmpty
+                ? ScenarioResult.Ok("independent editors work in parallel")
+                : ScenarioResult.Fail(string.Join(", ", failures));
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorSaveInvalidPath()
+    {
+        string path = TempPath("editor-save-invalid");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                string invalid = Path.Combine(
+                    Path.GetTempPath(),
+                    "pdf_oxide_missing_" + Guid.NewGuid().ToString("N"),
+                    "out.pdf");
+                byte[] invalidPath = Utf8(invalid);
+                fixed (byte* pInvalid = invalidPath)
+                {
+                    int error = 0;
+                    int save = UpstreamNativeMethods.document_editor_save(editor, pInvalid, &error);
+                    if (save == 0)
+                    {
+                        return ScenarioResult.Fail("save to a missing directory unexpectedly succeeded");
+                    }
+                    if (error == 0)
+                    {
+                        return ScenarioResult.Fail("failed save left errorCode at zero");
+                    }
+                }
+
+                nuint length = 0;
+                int bytesError = 0;
+                byte* bytes = UpstreamNativeMethods.document_editor_save_to_bytes(editor, &length, &bytesError);
+                if (bytes == null || length == 0)
+                {
+                    return ScenarioResult.Fail("save_to_bytes failed after a bad path save");
+                }
+                UpstreamNativeMethods.free_bytes(bytes);
+                return ScenarioResult.Ok("invalid save path failed without poisoning the editor");
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult BuilderLargeState()
+    {
+        const int pageCount = 100;
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            for (int index = 0; index < pageCount; index++)
+            {
+                if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+                {
+                    return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+                }
+                if (AddText(state, index, "page " + index.ToString(CultureInfo.InvariantCulture)) != 0)
+                {
+                    return ScenarioResult.Fail(TakeLastError() ?? "add_text failed");
+                }
+            }
+
+            int counted = NativeMethods.pdf_builder_get_page_count(state);
+            if (counted != pageCount)
+            {
+                return ScenarioResult.Fail($"page count {counted} != {pageCount}");
+            }
+
+            (int status, int length) = BuildAndFree(state);
+            return status == 0 && length > 0
+                ? ScenarioResult.Ok($"built {pageCount} pages, {length} bytes")
+                : ScenarioResult.Fail(TakeLastError() ?? "large build failed");
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
+        }
+    }
+
+    private static unsafe ScenarioResult FormsFlattenRoundtrip()
+    {
+        string path = TempPath("forms-flatten");
+        try
+        {
+            PdfBuilderState* state = NativeMethods.pdf_builder_create();
+            if (state == null)
+            {
+                return ScenarioResult.Fail("builder create returned null");
+            }
+
+            try
+            {
+                if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+                {
+                    return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+                }
+
+                byte[] name = Utf8("field");
+                fixed (byte* pName = name)
+                {
+                    if (NativeMethods.pdf_builder_add_text_field(
+                        state, 0, pName, 20f, 20f, 120f, 20f, pName) != 0)
+                    {
+                        return ScenarioResult.Fail(TakeLastError() ?? "add_text_field failed");
+                    }
+                }
+
+                if (SaveBuilder(state, path) != 0)
+                {
+                    return ScenarioResult.Fail(TakeLastError() ?? "save failed");
+                }
+            }
+            finally
+            {
+                NativeMethods.pdf_builder_free(state);
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            try
+            {
+                int error = 0;
+                int flatten = UpstreamNativeMethods.document_editor_flatten_forms(editor, &error);
+                if (flatten != 0)
+                {
+                    return ScenarioResult.Fail($"flatten_forms failed, rc={flatten}, errorCode={error}");
+                }
+
+                _ = UpstreamNativeMethods.document_editor_flatten_all_annotations(editor, &error);
+
+                nuint length = 0;
+                byte* bytes = UpstreamNativeMethods.document_editor_save_to_bytes(editor, &length, &error);
+                if (bytes == null || length == 0)
+                {
+                    return ScenarioResult.Fail("save_to_bytes failed after flattening");
+                }
+                UpstreamNativeMethods.free_bytes(bytes);
+                return ScenarioResult.Ok("forms flattened and saved");
+            }
+            finally
+            {
+                UpstreamNativeMethods.document_editor_free(editor);
+            }
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult SigningRoundtrip()
+    {
+        string path = TempPath("signing");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            byte[] pdf = File.ReadAllBytes(path);
+            byte[] pfx;
+            const string password = "pdfoxide-test";
+            using (var rsa = System.Security.Cryptography.RSA.Create(2048))
+            {
+                var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                    "CN=PdfOxideTest",
+                    rsa,
+                    System.Security.Cryptography.HashAlgorithmName.SHA256,
+                    System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+                using var certificate = request.CreateSelfSigned(
+                    DateTimeOffset.UtcNow.AddDays(-1),
+                    DateTimeOffset.UtcNow.AddDays(1));
+                pfx = certificate.Export(
+                    System.Security.Cryptography.X509Certificates.X509ContentType.Pfx,
+                    password);
+            }
+
+            string? detail = null;
+            byte[] passwordBytes = Utf8(password);
+            byte[] reason = Utf8("test");
+            byte[] location = Utf8("test");
+            fixed (byte* pPfx = pfx)
+            fixed (byte* pPassword = passwordBytes)
+            fixed (byte* pPdf = pdf)
+            fixed (byte* pReason = reason)
+            fixed (byte* pLocation = location)
+            {
+                int error = 0;
+                IntPtr certificate = UpstreamNativeMethods.pdf_certificate_load_from_bytes(
+                    pPfx, pfx.Length, pPassword, &error);
+                if (certificate == IntPtr.Zero)
+                {
+                    return ScenarioResult.Fail($"certificate load failed, errorCode={error}");
+                }
+
+                try
+                {
+                    nuint signedLength = 0;
+                    byte* signedPdf = UpstreamNativeMethods.pdf_sign_bytes(
+                        pPdf, (nuint)pdf.Length, certificate, pReason, pLocation, &signedLength, &error);
+                    if (signedPdf == null || signedLength == 0)
+                    {
+                        return ScenarioResult.Fail($"sign failed, errorCode={error}");
+                    }
+
+                    try
+                    {
+                        IntPtr document = UpstreamNativeMethods.pdf_document_open_from_bytes(
+                            signedPdf, signedLength, &error);
+                        if (document == IntPtr.Zero)
+                        {
+                            return ScenarioResult.Fail($"signed document open failed, errorCode={error}");
+                        }
+
+                        try
+                        {
+                            int nativeCount = UpstreamNativeMethods.pdf_document_get_signature_count(
+                                document, &error);
+                            if (nativeCount < 0)
+                            {
+                                return ScenarioResult.Fail(
+                                    $"native signature count failed, errorCode={error}");
+                            }
+
+                            var signedBytes = new byte[(int)signedLength];
+                            Marshal.Copy((IntPtr)signedPdf, signedBytes, 0, signedBytes.Length);
+                            int managedCount = PdfSigning.GetSignatureCount(signedBytes);
+                            if (managedCount < 1)
+                            {
+                                return ScenarioResult.Fail(
+                                    $"no signatures (native={nativeCount}, managed={managedCount})");
+                            }
+
+                            if (nativeCount > 0)
+                            {
+                                IntPtr signature = UpstreamNativeMethods.pdf_document_get_signature(
+                                    document, 0, &error);
+                                if (signature == IntPtr.Zero)
+                                {
+                                    return ScenarioResult.Fail($"signature 0 missing, errorCode={error}");
+                                }
+
+                                try
+                                {
+                                    int verify = UpstreamNativeMethods.pdf_signature_verify_detached(
+                                        signature, signedPdf, signedLength, &error);
+                                    if (verify != 0)
+                                    {
+                                        return ScenarioResult.Fail(
+                                            $"verify failed, rc={verify}, errorCode={error}");
+                                    }
+                                }
+                                finally
+                                {
+                                    UpstreamNativeMethods.pdf_signature_free(signature);
+                                }
+                            }
+
+                            detail = $"native={nativeCount}, managed={managedCount}";
+                        }
+                        finally
+                        {
+                            UpstreamNativeMethods.pdf_document_free(document);
+                        }
+                    }
+                    finally
+                    {
+                        UpstreamNativeMethods.free_bytes(signedPdf);
+                    }
+                }
+                finally
+                {
+                    UpstreamNativeMethods.pdf_certificate_free(certificate);
+                }
+            }
+
+            return ScenarioResult.Ok(detail ?? "self-signed sign/verify round-trip succeeded");
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult EditorDisposeRace()
+    {
+        string path = TempPath("editor-dispose-race");
+        try
+        {
+            if (!CreateSamplePdf(path))
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "sample PDF creation failed");
+            }
+
+            if (!TryOpenEditor(path, string.Empty, out IntPtr editor, out int openError))
+            {
+                return ScenarioResult.Fail($"editor open failed, errorCode={openError}");
+            }
+
+            int stop = 0;
+            var worker = new Thread(() =>
+            {
+                while (Volatile.Read(ref stop) == 0)
+                {
+                    _ = UpstreamNativeMethods.document_editor_is_modified(editor);
+                }
+            });
+            worker.Start();
+            Thread.Sleep(1);
+            UpstreamNativeMethods.document_editor_free(editor);
+            Volatile.Write(ref stop, 1);
+            worker.Join();
+            return ScenarioResult.Ok("disposed while a reader was active");
+        }
+        finally
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static unsafe ScenarioResult BuilderConcurrentWrites()
+    {
+        PdfBuilderState* state = NativeMethods.pdf_builder_create();
+        if (state == null)
+        {
+            return ScenarioResult.Fail("builder create returned null");
+        }
+
+        try
+        {
+            if (NativeMethods.pdf_builder_add_page(state, 0, 0f, 0f) != 0)
+            {
+                return ScenarioResult.Fail(TakeLastError() ?? "add_page failed");
+            }
+
+            var threads = new Thread[4];
+            for (int index = 0; index < threads.Length; index++)
+            {
+                int id = index;
+                threads[index] = new Thread(() =>
+                {
+                    for (int iteration = 0; iteration < 50; iteration++)
+                    {
+                        byte[] text = Utf8(
+                            "t" + id.ToString(CultureInfo.InvariantCulture)
+                            + "-" + iteration.ToString(CultureInfo.InvariantCulture));
+                        fixed (byte* pText = text)
+                        {
+                            _ = NativeMethods.pdf_builder_add_text(state, 0, pText, null, 10f);
+                        }
+                    }
+                });
+                threads[index].Start();
+            }
+
+            foreach (Thread thread in threads)
+            {
+                thread.Join();
+            }
+
+            return ScenarioResult.Ok("concurrent builder writes completed");
+        }
+        finally
+        {
+            NativeMethods.pdf_builder_free(state);
         }
     }
 

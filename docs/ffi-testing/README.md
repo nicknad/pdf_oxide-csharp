@@ -53,8 +53,10 @@ surface.
   `dlopen`/`LoadLibrary`; CI runs `symbols` and `smoke`, and the sanitizer
   workflow runs it under ASAN.
 
-Groups K-N are largely design-only; `FfiCrashHost` now covers editor handle
-contracts (K1-K3), streaming state (N1-N3), and `add_page_like` extremes (N8). See
+`FfiCrashHost` now covers editor handles, redaction, encryption, signing,
+concurrency, large state, forms flattening, builder extensions, and streaming
+state. Remaining design-only items are mostly version-skew, TSA/network, and
+fallback-parser cases. See
 [I-crash-harness.md](I-crash-harness.md) for the isolation contract and exit codes.
 
 ## Re-evaluation checklist (when trunk advances)

@@ -6,9 +6,9 @@ to take `page_index` (`rust/src/lib.rs:2388-2806`). Many new APIs take caller-ow
 arrays and counts without a matching length parameter, so they are high-value ABI
 fuzzing targets.
 
-Status: M2, M4-M9 validation paths are implemented in `FfiCrashHost` (builder
-extensions, short graphics arrays, invalid font bytes); M1, M3, M10-M12 remain
-design-only.
+Status: M2-M10 are implemented in `FfiCrashHost` (builder extensions, short
+graphics arrays, invalid font bytes, forms flattening, large builder state).
+M1 (version skew) and M11-M12 remain design-only.
 
 | # | Scenario | How to test | Why |
 | --- | --- | --- | --- |

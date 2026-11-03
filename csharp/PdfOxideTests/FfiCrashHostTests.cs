@@ -148,6 +148,54 @@ public class FfiCrashHostTests
     }
 
     [Fact]
+    public void TestEditorRedaction()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-redaction");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestEditorConcurrentRead()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-concurrent-read");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestEditorSaveInvalidPath()
+    {
+        CrashHostResult result = CrashHostRunner.Run("editor-save-invalid-path");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestBuilderLargeState()
+    {
+        CrashHostResult result = CrashHostRunner.Run("builder-large-state");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestFormsFlattenRoundtrip()
+    {
+        CrashHostResult result = CrashHostRunner.Run("forms-flatten-roundtrip");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
+    public void TestSigningRoundtrip()
+    {
+        CrashHostResult result = CrashHostRunner.Run("signing-roundtrip");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ReportedOk);
+    }
+
+    [Fact]
     public void TestBuilderExtensionValidation()
     {
         CrashHostResult result = CrashHostRunner.Run("builder-extension-validation");
@@ -228,6 +276,8 @@ public class FfiCrashHostTests
     [InlineData("certificate-null-input")]
     [InlineData("signature-null-handle")]
     [InlineData("graphics-array-mismatch")]
+    [InlineData("editor-dispose-race")]
+    [InlineData("builder-concurrent-writes")]
     public void TestMemorySafetyScenarioTerminatesWithoutManagedFailure(string scenario)
     {
         CrashHostResult result = CrashHostRunner.Run(scenario);
