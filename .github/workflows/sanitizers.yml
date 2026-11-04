@@ -30,9 +30,11 @@ jobs:
 
       - name: Build instrumented native library
         env:
-          RUSTFLAGS: "-Zsanitizer=address"
           CARGO_TARGET_DIR: rust/target/asan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=address','-Cunsafe-allow-abi-mismatch=sanitizer']"
 
       - name: Build ABI driver with ASAN
         run: >
@@ -42,22 +44,22 @@ jobs:
       - name: Run symbols scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so symbols
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so symbols
 
       - name: Run smoke scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so smoke
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so smoke
 
       - name: Run null-path scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so null-path
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so null-path
 
       - name: Run threads scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   tsan:
     name: TSan ABI driver
@@ -75,9 +77,11 @@ jobs:
 
       - name: Build ThreadSanitizer native library
         env:
-          RUSTFLAGS: "-Zsanitizer=thread"
           CARGO_TARGET_DIR: rust/target/tsan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=thread','-Cunsafe-allow-abi-mismatch=sanitizer']"
 
       - name: Build ABI driver with TSan
         run: >
@@ -87,7 +91,7 @@ jobs:
       - name: Run threads scenario
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
-        run: ./ffi_abi_driver_tsan rust/target/tsan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver_tsan rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   pageheap:
     name: Windows PageHeap crash host
@@ -124,10 +128,27 @@ jobs:
         shell: pwsh
         run: Copy-Item runtimes/win-x64/native/pdfoxide_bindings.dll publish/pdfoxide_bindings.dll -Force
 
+      - name: Install Debugging Tools for Windows
+        shell: pwsh
+        run: |
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if ($gflags) {
+            Write-Host "gflags already available: $($gflags.FullName)"
+            exit 0
+          }
+          $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2196241' -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList '/features OptionId.WindowsDesktopDebuggers /quiet /norestart' -Wait
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if (-not $gflags) { throw 'gflags.exe was not installed by the Windows SDK setup.' }
+
       - name: Enable PageHeap
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
           if (-not $gflags) { throw 'gflags.exe not found; PageHeap is unavailable on this runner.' }
           & $gflags.FullName /p /enable "$PWD\publish\FfiCrashHost.exe" /full
 
@@ -153,7 +174,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
           if ($gflags) {
             & $gflags.FullName /p /disable "$PWD\publish\FfiCrashHost.exe"
           }
