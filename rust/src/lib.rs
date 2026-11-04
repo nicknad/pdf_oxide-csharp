@@ -62,6 +62,12 @@ const PAGE_KIND_LEGAL: i32 = 2;
 const PAGE_KIND_A3: i32 = 3;
 const PAGE_KIND_CUSTOM: i32 = 4;
 
+// PDF 1.7 recommends page sides between 3 and 14400 units (200 inches). A
+// lower bound of 1 point keeps small custom pages usable while preventing
+// degenerate sizes that can make layout engines consume unbounded memory.
+const MIN_CUSTOM_PAGE_POINTS: f32 = 1.0;
+const MAX_CUSTOM_PAGE_POINTS: f32 = 14400.0;
+
 #[derive(Clone, Copy)]
 enum PageKind {
     A4,
@@ -79,10 +85,16 @@ impl PageKind {
             PAGE_KIND_LEGAL => Ok(Self::Legal),
             PAGE_KIND_A3 => Ok(Self::A3),
             PAGE_KIND_CUSTOM => {
-                if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+                if !width.is_finite()
+                    || !height.is_finite()
+                    || !(MIN_CUSTOM_PAGE_POINTS..=MAX_CUSTOM_PAGE_POINTS).contains(&width)
+                    || !(MIN_CUSTOM_PAGE_POINTS..=MAX_CUSTOM_PAGE_POINTS).contains(&height)
+                {
                     return Err(IoError::new(
                         ErrorKind::InvalidInput,
-                        "custom page dimensions must be positive finite numbers",
+                        format!(
+                            "custom page dimensions must be finite and between {MIN_CUSTOM_PAGE_POINTS} and {MAX_CUSTOM_PAGE_POINTS} points"
+                        ),
                     )
                     .into());
                 }
@@ -4800,4 +4812,51 @@ fn set_last_error(err: impl ToString) {
     LAST_ERROR.with(|e| {
         *e.borrow_mut() = Some(err.to_string());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_page_dimensions_are_bounded() {
+        assert!(PageKind::from_values(PAGE_KIND_CUSTOM, 400.0, 300.0).is_ok());
+        assert!(
+            PageKind::from_values(
+                PAGE_KIND_CUSTOM,
+                MIN_CUSTOM_PAGE_POINTS,
+                MIN_CUSTOM_PAGE_POINTS
+            )
+            .is_ok()
+        );
+        assert!(
+            PageKind::from_values(
+                PAGE_KIND_CUSTOM,
+                MAX_CUSTOM_PAGE_POINTS,
+                MAX_CUSTOM_PAGE_POINTS
+            )
+            .is_ok()
+        );
+        assert!(
+            PageKind::from_values(PAGE_KIND_CUSTOM, MIN_CUSTOM_PAGE_POINTS - 0.1, 300.0).is_err()
+        );
+        assert!(
+            PageKind::from_values(PAGE_KIND_CUSTOM, 300.0, MIN_CUSTOM_PAGE_POINTS - 0.1).is_err()
+        );
+        assert!(
+            PageKind::from_values(PAGE_KIND_CUSTOM, MAX_CUSTOM_PAGE_POINTS + 1.0, 300.0).is_err()
+        );
+        assert!(
+            PageKind::from_values(PAGE_KIND_CUSTOM, 400.0, MAX_CUSTOM_PAGE_POINTS + 1.0).is_err()
+        );
+        assert!(PageKind::from_values(PAGE_KIND_CUSTOM, f32::NAN, 300.0).is_err());
+        assert!(PageKind::from_values(PAGE_KIND_CUSTOM, 400.0, f32::INFINITY).is_err());
+        assert!(PageKind::from_values(PAGE_KIND_CUSTOM, 0.0, 300.0).is_err());
+        assert!(PageKind::from_values(PAGE_KIND_CUSTOM, -1.0, 300.0).is_err());
+    }
+
+    #[test]
+    fn standard_page_kinds_ignore_dimensions() {
+        assert!(PageKind::from_values(PAGE_KIND_A4, f32::NAN, 0.0).is_ok());
+    }
 }
