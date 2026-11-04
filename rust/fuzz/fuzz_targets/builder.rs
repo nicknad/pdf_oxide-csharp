@@ -54,11 +54,13 @@ impl<'a> Cursor<'a> {
     }
 
     fn next_bytes(&mut self, maximum: usize) -> &'a [u8] {
-        let remaining = self.data.len().saturating_sub(self.position);
         let requested = usize::from(self.next_u8());
+        let start = self.position.min(self.data.len());
+        let remaining = self.data.len() - start;
         let length = (requested % (maximum + 1)).min(remaining);
-        let slice = &self.data[self.position..self.position + length];
-        self.position += length;
+        let end = start + length;
+        let slice = &self.data[start..end];
+        self.position = end;
         slice
     }
 }
