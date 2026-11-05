@@ -24,6 +24,12 @@ use pdfoxide_bindings::{
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+// pdf_oxide 0.3.78 can loop allocating while paginating a streaming table on a
+// page smaller than its calculated row/header height. Skip streaming tables on
+// small pages until the upstream layout bug is fixed; remove this workaround
+// once it lands.
+const MIN_STREAMING_TABLE_PAGE: f32 = 300.0;
+
 struct Cursor<'a> {
     data: &'a [u8],
     position: usize,
@@ -97,6 +103,7 @@ fuzz_target!(|data: &[u8]| {
 
     let mut cursor = Cursor::new(data);
     let mut pages: i32 = 0;
+    let mut page_min_dims: Vec<f32> = Vec::new();
 
     unsafe {
         let state = pdf_builder_create();
@@ -117,6 +124,14 @@ fuzz_target!(|data: &[u8]| {
                     let height = cursor.next_f32();
                     if pdf_builder_add_page(state, kind, width, height) == 0 {
                         pages += 1;
+                        let (page_width, page_height) = match kind {
+                            0 => (595.28, 841.89),
+                            1 => (612.0, 792.0),
+                            2 => (612.0, 1008.0),
+                            3 => (841.89, 1190.55),
+                            _ => (width, height),
+                        };
+                        page_min_dims.push(page_width.min(page_height));
                     }
                 }
                 1 => {
@@ -256,48 +271,54 @@ fuzz_target!(|data: &[u8]| {
                 14 => {
                     let header0 = to_c_string(cursor.next_bytes(16));
                     let header1 = to_c_string(cursor.next_bytes(16));
-                    let headers = [header0.as_ptr(), header1.as_ptr()];
-                    let widths = [50.0_f32, 100.0_f32];
-                    let aligns = [0_i32, 2_i32];
                     let index = page_index(&mut cursor, pages);
-                    let begun = pdf_builder_streaming_table_begin(
-                        state,
-                        index,
-                        headers.as_ptr(),
-                        widths.as_ptr(),
-                        aligns.as_ptr(),
-                        2,
-                        1,
-                        0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        2.0,
-                        1.0,
-                        1.0,
-                        1,
-                    );
-                    if begun == 0 {
-                        let rows = usize::from(cursor.next_u8() % 4);
-                        for _ in 0..rows {
-                            let cell0 = to_c_string(cursor.next_bytes(16));
-                            let cell1 = to_c_string(cursor.next_bytes(16));
-                            let cells = [cell0.as_ptr(), cell1.as_ptr()];
-                            let spans = [1_i32, 1_i32];
-                            let _ = pdf_builder_streaming_table_add_row(
-                                state,
-                                cells.as_ptr(),
-                                spans.as_ptr(),
-                                2,
-                            );
-                        }
-                        if cursor.next_u8() % 2 == 0 {
-                            let _ = pdf_builder_streaming_table_end(state);
+                    let page_too_small = usize::try_from(index)
+                        .ok()
+                        .and_then(|index| page_min_dims.get(index))
+                        .is_some_and(|minimum| *minimum < MIN_STREAMING_TABLE_PAGE);
+                    if !page_too_small {
+                        let headers = [header0.as_ptr(), header1.as_ptr()];
+                        let widths = [50.0_f32, 100.0_f32];
+                        let aligns = [0_i32, 2_i32];
+                        let begun = pdf_builder_streaming_table_begin(
+                            state,
+                            index,
+                            headers.as_ptr(),
+                            widths.as_ptr(),
+                            aligns.as_ptr(),
+                            2,
+                            1,
+                            0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2.0,
+                            1.0,
+                            1.0,
+                            1,
+                        );
+                        if begun == 0 {
+                            let rows = usize::from(cursor.next_u8() % 4);
+                            for _ in 0..rows {
+                                let cell0 = to_c_string(cursor.next_bytes(16));
+                                let cell1 = to_c_string(cursor.next_bytes(16));
+                                let cells = [cell0.as_ptr(), cell1.as_ptr()];
+                                let spans = [1_i32, 1_i32];
+                                let _ = pdf_builder_streaming_table_add_row(
+                                    state,
+                                    cells.as_ptr(),
+                                    spans.as_ptr(),
+                                    2,
+                                );
+                            }
+                            if cursor.next_u8() % 2 == 0 {
+                                let _ = pdf_builder_streaming_table_end(state);
+                            }
                         }
                     }
                 }
