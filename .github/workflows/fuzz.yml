@@ -4,6 +4,11 @@ on:
   schedule:
     # Nightly at 03:00 UTC.
     - cron: "0 3 * * *"
+  # See sanitizers.yml: a scheduled workflow only runs the default branch, so
+  # fuzzing changes could not be exercised before merge. Branch-scoped pushes
+  # restore the feedback loop without adding cost to every pull request.
+  push:
+    branches: ["ci/**"]
   workflow_dispatch:
     inputs:
       max_total_time:

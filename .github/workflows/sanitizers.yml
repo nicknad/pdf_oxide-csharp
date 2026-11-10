@@ -5,6 +5,13 @@ on:
     # Nightly at 04:00 UTC.
     - cron: "0 4 * * *"
   workflow_dispatch:
+  # A scheduled workflow only ever runs the default branch, so a change to this
+  # file could not be exercised until after it merged - which is how the
+  # 2026-11-06..09 failures went unnoticed against an untested "fix". Pushes to
+  # gate-work branches get the same feedback loop before merge without adding
+  # cost to every pull request.
+  push:
+    branches: ["ci/**"]
 
 permissions:
   contents: read
