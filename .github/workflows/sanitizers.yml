@@ -5,6 +5,13 @@ on:
     # Nightly at 04:00 UTC.
     - cron: "0 4 * * *"
   workflow_dispatch:
+  # A scheduled workflow only ever runs the default branch, so a change to this
+  # file could not be exercised until after it merged - which is how the
+  # 2026-11-06..09 failures went unnoticed against an untested "fix". Pushes to
+  # gate-work branches get the same feedback loop before merge without adding
+  # cost to every pull request.
+  push:
+    branches: ["ci/**"]
 
 permissions:
   contents: read
@@ -22,17 +29,62 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      # `-Zbuild-std` needs the standard library sources.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Pinned: the sanitizer flag scoping and -Zbuild-std behaviour are
+          # nightly-only and can change under the gate with no commit in this
+          # repo. Bump deliberately, together with the commands below.
+          toolchain: nightly-2026-11-09
+          components: rust-src
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-asan
 
+      # Sanitizer flags belong in `target.<triple>.rustflags`, never in
+      # `RUSTFLAGS`: the latter also reaches host units (build scripts and
+      # proc-macro crates), which is what produced
+      # "building proc macro crate with sanitizers enabled is not supported"
+      # (bytemuck_derive) and the `unicode_ident` ABI-mismatch error.
+      # An explicit `--target` is what makes cargo treat build scripts as host
+      # units in the first place. `-Zbuild-std` instruments std as well, so the
+      # whole target-side dependency graph shares one sanitizer configuration.
       - name: Build instrumented native library
         env:
-          RUSTFLAGS: "-Zsanitizer=address"
           CARGO_TARGET_DIR: rust/target/asan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly-2026-11-09 build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          -Zbuild-std
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=address']"
+
+      # Exit status alone cannot tell an instrumented build from an
+      # uninstrumented one: a job that quietly drops the flags would still pass
+      # every scenario below. Assert on the artifact instead. The sanitizer
+      # runtime may be linked statically into the cdylib or dynamically, so
+      # check for the runtime symbols rather than for a specific NEEDED entry,
+      # and require instrumented call sites in the code itself.
+      - name: Verify the library is ASAN-instrumented
+        run: |
+          set -euo pipefail
+          so=rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
+          test -f "$so"
+          echo "--- sanitizer runtime linkage:"
+          readelf -d "$so" | grep -iE 'NEEDED.*asan' || echo "  (no dynamic dependency: runtime is linked statically)"
+          if ! readelf -sW "$so" | grep -qE '__asan_(init|report_load|report_store)'; then
+            echo "::error::$so contains no ASAN runtime symbols"
+            readelf -sW "$so" | head -40
+            exit 1
+          fi
+          sites=$(objdump -d "$so" | grep -c '__asan_report' || true)
+          echo "--- ASAN report call sites in .text: $sites"
+          if [ "$sites" -eq 0 ]; then
+            echo "::error::$so has an ASAN runtime but no instrumented call sites"
+            exit 1
+          fi
+          echo "ASAN instrumentation verified in the artifact."
 
       - name: Build ABI driver with ASAN
         run: >
@@ -42,22 +94,22 @@ jobs:
       - name: Run symbols scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so symbols
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so symbols
 
       - name: Run smoke scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so smoke
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so smoke
 
       - name: Run null-path scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so null-path
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so null-path
 
       - name: Run threads scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   tsan:
     name: TSan ABI driver
@@ -67,17 +119,49 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      # TSan needs an instrumented std; without `-Zbuild-std` the precompiled
+      # std is uninstrumented and TSan reports spurious races in std internals.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Pinned: the sanitizer flag scoping and -Zbuild-std behaviour are
+          # nightly-only and can change under the gate with no commit in this
+          # repo. Bump deliberately, together with the commands below.
+          toolchain: nightly-2026-11-09
+          components: rust-src
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-tsan
 
       - name: Build ThreadSanitizer native library
         env:
-          RUSTFLAGS: "-Zsanitizer=thread"
           CARGO_TARGET_DIR: rust/target/tsan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly-2026-11-09 build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          -Zbuild-std
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=thread']"
+
+      - name: Verify the library is TSan-instrumented
+        run: |
+          set -euo pipefail
+          so=rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
+          test -f "$so"
+          echo "--- sanitizer runtime linkage:"
+          readelf -d "$so" | grep -iE 'NEEDED.*tsan' || echo "  (no dynamic dependency: runtime is linked statically)"
+          if ! readelf -sW "$so" | grep -qE '__tsan_(init|read|write|func_entry)'; then
+            echo "::error::$so contains no TSan runtime symbols"
+            readelf -sW "$so" | head -40
+            exit 1
+          fi
+          sites=$(objdump -d "$so" | grep -cE '__tsan_(read|write|func_entry)' || true)
+          echo "--- TSan instrumentation call sites in .text: $sites"
+          if [ "$sites" -eq 0 ]; then
+            echo "::error::$so has a TSan runtime but no instrumented call sites"
+            exit 1
+          fi
+          echo "TSan instrumentation verified in the artifact."
 
       - name: Build ABI driver with TSan
         run: >
@@ -87,7 +171,7 @@ jobs:
       - name: Run threads scenario
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
-        run: ./ffi_abi_driver_tsan rust/target/tsan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver_tsan rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   pageheap:
     name: Windows PageHeap crash host
@@ -102,6 +186,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-pageheap
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -124,12 +209,80 @@ jobs:
         shell: pwsh
         run: Copy-Item runtimes/win-x64/native/pdfoxide_bindings.dll publish/pdfoxide_bindings.dll -Force
 
+      # The previous version of this job assumed gflags.exe was preinstalled on
+      # the runner image and threw when it was not. The Windows SDK on the image
+      # does not ship Debugging Tools, so provision them explicitly and record
+      # what happened instead of assuming success.
+      - name: Provision Debugging Tools for Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Find-Gflags {
+            $roots = @(
+              "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers",
+              "$env:ProgramFiles\Windows Kits\10\Debuggers"
+            )
+            foreach ($root in $roots) {
+              if (Test-Path $root) {
+                $hit = Get-ChildItem -Path $root -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match '\\x64\\' } |
+                  Select-Object -First 1
+                if ($hit) { return $hit.FullName }
+              }
+            }
+            $cmd = Get-Command gflags.exe -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+            return $null
+          }
+
+          $gflags = Find-Gflags
+          if ($gflags) {
+            Write-Host "gflags already available: $gflags"
+            "GFLAGS=$gflags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+
+          $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
+          Write-Host "Downloading Debugging Tools for Windows."
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2196241' -OutFile $installer
+          $proc = Start-Process -FilePath $installer `
+            -ArgumentList '/features OptionId.WindowsDesktopDebuggers /quiet /norestart /ceip off' `
+            -Wait -PassThru
+          Write-Host "winsdksetup exit code: $($proc.ExitCode)"
+
+          $gflags = Find-Gflags
+          if (-not $gflags -and (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+            Write-Host "Falling back to the windbg Chocolatey package."
+            choco install windbg --no-progress -y
+            $gflags = Find-Gflags
+          }
+
+          if (-not $gflags) {
+            Write-Host "Diagnostics:"
+            Write-Host "  winsdksetup exit code: $($proc.ExitCode)"
+            Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10' -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  Kits: $_" }
+            Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  SDK: $_" }
+            throw 'gflags.exe could not be provisioned; PageHeap is unavailable on this runner.'
+          }
+
+          Write-Host "gflags available: $gflags"
+          "GFLAGS=$gflags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Enable PageHeap
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $gflags) { throw 'gflags.exe not found; PageHeap is unavailable on this runner.' }
-          & $gflags.FullName /p /enable "$PWD\publish\FfiCrashHost.exe" /full
+          & $env:GFLAGS /p /enable "$PWD\publish\FfiCrashHost.exe" /full
+          if ($LASTEXITCODE -ne 0) { throw "gflags /p /enable failed with exit code $LASTEXITCODE" }
+          # `gflags /p` prints the images that have page heap enabled; confirm the
+          # setting actually took before trusting the scenarios below.
+          $state = & $env:GFLAGS /p
+          Write-Host $state
+          if (-not ($state -match 'FfiCrashHost')) {
+            throw 'PageHeap was requested but gflags does not report the crash host as enabled.'
+          }
 
       - name: Run safe scenarios under PageHeap
         shell: pwsh
@@ -153,7 +306,6 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($gflags) {
-            & $gflags.FullName /p /disable "$PWD\publish\FfiCrashHost.exe"
+          if ($env:GFLAGS -and (Test-Path $env:GFLAGS)) {
+            & $env:GFLAGS /p /disable "$PWD\publish\FfiCrashHost.exe"
           }

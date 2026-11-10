@@ -54,12 +54,17 @@ impl<'a> Cursor<'a> {
     }
 
     fn next_bytes(&mut self, maximum: usize) -> &'a [u8] {
-        let remaining = self.data.len().saturating_sub(self.position);
+        // `next_u8` advances the cursor, so the bounds have to be taken after
+        // it, not before: computing `remaining` first made `position + length`
+        // run one byte past the end and panicked on short inputs
+        // (`range end index 5 out of range for slice of length 4`).
         let requested = usize::from(self.next_u8());
+        let start = self.position.min(self.data.len());
+        let remaining = self.data.len() - start;
         let length = (requested % (maximum + 1)).min(remaining);
-        let slice = &self.data[self.position..self.position + length];
-        self.position += length;
-        slice
+        let end = start + length;
+        self.position = end;
+        &self.data[start..end]
     }
 }
 

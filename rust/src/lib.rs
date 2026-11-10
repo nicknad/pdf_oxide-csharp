@@ -36,8 +36,8 @@ use pdf_oxide::outline::{Destination, OutlineItem};
 use pdf_oxide::writer::{
     CellAlign, DocumentBuilder as PdfWriterBuilder, EmbeddedFont, FluentPageBuilder, LineStyle,
     LinkAnnotation, ListStyle, PageSize, StampType, StreamingColumn, StreamingTableConfig, Table,
-    TableCell, TableRow, TableStyle, TextAnnotation, TextMarkupAnnotation, TextRun, TextRunStyle,
-    WatermarkAnnotation,
+    TableCell, TableRow, TableStyle, TextAnnotation, TextLayout, TextMarkupAnnotation, TextRun,
+    TextRunStyle, WatermarkAnnotation,
 };
 use pdf_oxide::{TextAnnotationIcon, TextMarkupType};
 use serde::Serialize;
@@ -397,6 +397,11 @@ enum BuilderOp {
     StreamingTable {
         config: StreamingTableConfig,
         rows: Vec<Vec<(String, usize)>>,
+        columns: Vec<(String, f32)>,
+        repeat_header: bool,
+        pad_h: f32,
+        pad_top: f32,
+        pad_bottom: f32,
     },
 }
 
@@ -410,6 +415,13 @@ struct PendingStreamingTable {
     config: StreamingTableConfig,
     column_count: usize,
     rows: Vec<Vec<(String, usize)>>,
+    /// Column header text and width, kept so the fit check below can measure
+    /// the header exactly the way the renderer will.
+    columns: Vec<(String, f32)>,
+    repeat_header: bool,
+    pad_h: f32,
+    pad_top: f32,
+    pad_bottom: f32,
 }
 
 #[derive(Default)]
@@ -497,8 +509,9 @@ impl PdfBuilderState {
 
         for page in &self.pages {
             let mut page_builder = document.page(page.kind.page_size());
+            let mut text_state = TextState::default();
             for op in &page.ops {
-                page_builder = render_op(page_builder, op)?;
+                page_builder = render_op(page_builder, op, &mut text_state)?;
             }
             page_builder.done();
         }
@@ -507,9 +520,98 @@ impl PdfBuilderState {
     }
 }
 
+/// Reject a streaming table that the renderer could never paginate.
+///
+/// pdf_oxide 0.3.78 lays a streaming table out by walking rows and breaking
+/// pages; `draw_row_from` breaks the page again whenever not a single line
+/// fits, without checking that the new page is any better. When a row's line
+/// height (or the repeated header plus one line) exceeds the space a fresh
+/// page offers, that loop never terminates and allocates a page per iteration
+/// until the process runs out of memory. Reproduced with the fuzz target: an
+/// A4 page, a text run at 2.37e14 pt and a streaming table with
+/// `repeat_header` peaked at 2.1 GB in ~69k executions.
+///
+/// The limits here are exact, not estimates: a fresh page starts at
+/// `height - 72` and `remaining_space()` subtracts another 72 (see
+/// `document_builder.rs`), so it offers `height - 144` points, and a row line
+/// is `font_size * 1.2` (the `TextConfig` default). The header height is
+/// measured with the same `TextLayout` the renderer uses. If upstream changes
+/// those constants, the nightly fuzz gate is what catches it.
+fn ensure_streaming_table_fits(
+    page_height: f32,
+    font: &str,
+    font_size: f32,
+    columns: &[(String, f32)],
+    repeat_header: bool,
+    pad_h: f32,
+    pad_top: f32,
+    pad_bottom: f32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const VERTICAL_MARGINS: f32 = 144.0;
+    const LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
+
+    let available = (page_height - VERTICAL_MARGINS).max(0.0);
+    let line_height = font_size * LINE_HEIGHT_MULTIPLIER;
+
+    // A line that cannot fit on an otherwise empty page can never make
+    // progress, whether or not the header is repeated.
+    if line_height + pad_top > available {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "streaming table row cannot fit on a {page_height} pt page: a line at {font_size} pt needs {line_height} pt and a fresh page offers {available} pt; reduce the font size or use a larger page"
+            ),
+        )
+        .into());
+    }
+
+    if repeat_header {
+        let layout = TextLayout::new();
+        let mut header_lines = 1usize;
+        for (header, width) in columns {
+            let content_width = (width - 2.0 * pad_h).max(1.0);
+            let lines = layout
+                .wrap_text(header, font, font_size, content_width)
+                .len()
+                .max(1);
+            header_lines = header_lines.max(lines);
+        }
+        let header_height = pad_top + pad_bottom + header_lines as f32 * line_height;
+        if header_height + line_height + pad_top > available {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "streaming table with a repeated header cannot fit on a {page_height} pt page: the {header_lines}-line header plus one row needs {} pt and a fresh page offers {available} pt; reduce the font size, widen the columns or disable header repetition",
+                    header_height + line_height + pad_top
+                ),
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
+/// The page builder's current text configuration, mirrored so that table fit
+/// checks can use the same font and size the renderer will use.
+struct TextState {
+    font: String,
+    size: f32,
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        Self {
+            font: "Helvetica".to_string(),
+            size: 12.0,
+        }
+    }
+}
+
 fn render_op<'a>(
     mut page: FluentPageBuilder<'a>,
     op: &BuilderOp,
+    text_state: &mut TextState,
 ) -> Result<FluentPageBuilder<'a>, Box<dyn std::error::Error>> {
     match op {
         BuilderOp::Text {
@@ -524,8 +626,11 @@ fn render_op<'a>(
             }
             if let Some(font) = font {
                 page = page.font(font, size.unwrap_or(12.0));
+                text_state.font = font.clone();
+                text_state.size = size.unwrap_or(12.0);
             } else if let Some(size) = size {
                 page = page.font("Helvetica", *size);
+                text_state.size = *size;
             }
             page = page.text(text);
         }
@@ -603,7 +708,25 @@ fn render_op<'a>(
             };
             page = page.table(table);
         }
-        BuilderOp::StreamingTable { config, rows } => {
+        BuilderOp::StreamingTable {
+            config,
+            rows,
+            columns,
+            repeat_header,
+            pad_h,
+            pad_top,
+            pad_bottom,
+        } => {
+            ensure_streaming_table_fits(
+                page.page_dimensions().1,
+                &text_state.font,
+                text_state.size,
+                columns,
+                *repeat_header,
+                *pad_h,
+                *pad_top,
+                *pad_bottom,
+            )?;
             let mut table = page.streaming_table(config.clone());
             for row in rows {
                 table.push_row(|r| {
@@ -2852,6 +2975,7 @@ pub unsafe extern "C" fn pdf_builder_streaming_table_begin(
         let headers_slice = unsafe { std::slice::from_raw_parts(headers, count) };
 
         let mut config = StreamingTableConfig::new();
+        let mut columns: Vec<(String, f32)> = Vec::with_capacity(count);
         for index in 0..count {
             let width = widths_slice[index];
             if !width.is_finite() || width <= 0.0 {
@@ -2863,6 +2987,7 @@ pub unsafe extern "C" fn pdf_builder_streaming_table_begin(
             }
             let align = cell_align_from_code(aligns_slice[index])?;
             let header = c_string_to_string(headers_slice[index], "column header")?;
+            columns.push((header.clone(), width));
             config = config.column(
                 StreamingColumn::new(header)
                     .width_pt(width)
@@ -2889,6 +3014,11 @@ pub unsafe extern "C" fn pdf_builder_streaming_table_begin(
             config,
             column_count: count,
             rows: Vec::new(),
+            columns,
+            repeat_header: repeat_header != 0,
+            pad_h,
+            pad_top,
+            pad_bottom,
         });
         Ok(())
     })
@@ -2963,6 +3093,11 @@ pub extern "C" fn pdf_builder_streaming_table_end(state: *mut PdfBuilderState) -
             .push(BuilderOp::StreamingTable {
                 config: pending.config,
                 rows: pending.rows,
+                columns: pending.columns,
+                repeat_header: pending.repeat_header,
+                pad_h: pending.pad_h,
+                pad_top: pending.pad_top,
+                pad_bottom: pending.pad_bottom,
             });
         Ok(())
     })
@@ -4800,4 +4935,95 @@ fn set_last_error(err: impl ToString) {
     LAST_ERROR.with(|e| {
         *e.borrow_mut() = Some(err.to_string());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    /// Build a one-page A4 document holding a text run of `size` points and a
+    /// three-row streaming table, mirroring the fuzz target's op sequence.
+    fn build_with_streaming_table(size: f32, repeat_header: i32) -> Result<Vec<u8>, String> {
+        unsafe {
+            let state = pdf_builder_create();
+            assert!(!state.is_null());
+            assert_eq!(pdf_builder_add_page(state, 0, 595.0, 842.0), 0);
+
+            let text = CString::new("#").unwrap();
+            assert_eq!(
+                pdf_builder_add_text(state, 0, text.as_ptr(), std::ptr::null(), size),
+                0
+            );
+
+            let header0 = CString::new("a").unwrap();
+            let header1 = CString::new("b").unwrap();
+            let headers = [header0.as_ptr(), header1.as_ptr()];
+            let widths = [50.0f32, 100.0];
+            let aligns = [0i32, 2];
+            assert_eq!(
+                pdf_builder_streaming_table_begin(
+                    state,
+                    0,
+                    headers.as_ptr(),
+                    widths.as_ptr(),
+                    aligns.as_ptr(),
+                    2,
+                    repeat_header,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    1.0,
+                    1.0,
+                    1,
+                ),
+                0
+            );
+
+            let cell0 = CString::new("x").unwrap();
+            let cell1 = CString::new("y").unwrap();
+            let cells = [cell0.as_ptr(), cell1.as_ptr()];
+            let spans = [1i32, 1];
+            assert_eq!(
+                pdf_builder_streaming_table_add_row(state, cells.as_ptr(), spans.as_ptr(), 2),
+                0
+            );
+            assert_eq!(pdf_builder_streaming_table_end(state), 0);
+
+            let mut data: *mut u8 = std::ptr::null_mut();
+            let mut len = 0i32;
+            let rc = pdf_builder_build(state, &mut data, &mut len);
+            let result = if rc == 0 {
+                let bytes = std::slice::from_raw_parts(data, len as usize).to_vec();
+                pdf_builder_bytes_free(data, len);
+                Ok(bytes)
+            } else {
+                Err(c_string_to_string(pdf_last_error_message(), "error").unwrap_or_default())
+            };
+            pdf_builder_free(state);
+            result
+        }
+    }
+
+    #[test]
+    fn streaming_table_with_an_unrenderable_row_is_rejected() {
+        // The exact font size the fuzz target found: it used to make
+        // pdf_oxide's pagination loop allocate until the process died.
+        let error = build_with_streaming_table(2.37e14, 1)
+            .expect_err("an unrenderable table must be rejected, not built");
+        assert!(error.contains("cannot fit"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn streaming_table_that_fits_is_still_built() {
+        let bytes = build_with_streaming_table(12.0, 1).expect("a normal table must still build");
+        assert!(bytes.starts_with(b"%PDF"));
+    }
 }

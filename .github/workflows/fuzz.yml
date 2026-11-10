@@ -4,6 +4,11 @@ on:
   schedule:
     # Nightly at 03:00 UTC.
     - cron: "0 3 * * *"
+  # See sanitizers.yml: a scheduled workflow only runs the default branch, so
+  # fuzzing changes could not be exercised before merge. Branch-scoped pushes
+  # restore the feedback loop without adding cost to every pull request.
+  push:
+    branches: ["ci/**"]
   workflow_dispatch:
     inputs:
       max_total_time:
@@ -31,7 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # Pinned for the same reason as sanitizers.yml: libFuzzer builds and
+          # -Zsanitizer support move with the nightly channel.
+          toolchain: nightly-2026-11-09
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -53,7 +62,7 @@ jobs:
         env:
           MAX_TOTAL_TIME: ${{ github.event.inputs.max_total_time || '300' }}
         run: |
-          cargo +nightly fuzz run "${{ matrix.target }}" -- \
+          cargo +nightly-2026-11-09 fuzz run "${{ matrix.target }}" -- \
             -max_total_time="${MAX_TOTAL_TIME}" \
             -rss_limit_mb=2048 \
             -print_final_stats=1
