@@ -1029,6 +1029,16 @@ fn render_op<'a>(
 /// The returned pointer must be freed using `pdf_string_free()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_extract_text(path: *const c_char) -> *mut c_char {
+    // MUTATION BRANCH ONLY: a deliberate one-byte heap overflow, used to prove
+    // that the ASAN and PageHeap gates still detect defects. Never merge.
+    {
+        let mut planted = vec![0u8; 8];
+        unsafe {
+            let base = planted.as_mut_ptr();
+            std::ptr::write_volatile(base.add(8), 0xAB);
+        }
+        std::hint::black_box(&planted);
+    }
     match extract_text_internal(path) {
         Ok(cstr) => cstr.into_raw(),
         Err(e) => {
