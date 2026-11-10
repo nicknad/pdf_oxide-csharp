@@ -18,18 +18,6 @@ namespace PdfOxide
 
 
 
-        /// <summary>
-        ///  Extract all text content from a PDF file.
-        ///
-        ///  # Arguments
-        ///  * `path` - Path to the PDF file as a null-terminated C string
-        ///
-        ///  # Returns
-        ///  * Pointer to allocated C string containing extracted text, or NULL on error
-        ///  #
-        ///  # Safety
-        ///  The returned pointer must be freed using `pdf_string_free()`.
-        /// </summary>
         [DllImport(__DllName, EntryPoint = "pdf_extract_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern byte* pdf_extract_text(byte* path);
 

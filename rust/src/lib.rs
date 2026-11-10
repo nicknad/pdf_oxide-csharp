@@ -1027,8 +1027,17 @@ fn render_op<'a>(
 /// #
 /// # Safety
 /// The returned pointer must be freed using `pdf_string_free()`.
+static mut PLANTED_RACE: u64 = 0;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pdf_extract_text(path: *const c_char) -> *mut c_char {
+    // MUTATION BRANCH ONLY: an unsynchronised write reached from four threads,
+    // used to prove the TSan gate still detects races. Never merge.
+    unsafe {
+        for _ in 0..64 {
+            PLANTED_RACE = PLANTED_RACE.wrapping_add(1);
+        }
+    }
     match extract_text_internal(path) {
         Ok(cstr) => cstr.into_raw(),
         Err(e) => {
