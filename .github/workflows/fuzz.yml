@@ -50,7 +50,7 @@ jobs:
         run: cargo install cargo-fuzz --locked
 
       - name: Restore corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: rust/fuzz/corpus
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
