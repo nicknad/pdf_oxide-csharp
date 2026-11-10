@@ -30,8 +30,12 @@ jobs:
       - uses: actions/checkout@v7
 
       # `-Zbuild-std` needs the standard library sources.
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@master
         with:
+          # Pinned: the sanitizer flag scoping and -Zbuild-std behaviour are
+          # nightly-only and can change under the gate with no commit in this
+          # repo. Bump deliberately, together with the commands below.
+          toolchain: nightly-2026-11-09
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -51,7 +55,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: rust/target/asan
         run: >
-          cargo +nightly build --manifest-path rust/Cargo.toml
+          cargo +nightly-2026-11-09 build --manifest-path rust/Cargo.toml
           --target x86_64-unknown-linux-gnu
           -Zbuild-std
           --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=address']"
@@ -117,8 +121,12 @@ jobs:
 
       # TSan needs an instrumented std; without `-Zbuild-std` the precompiled
       # std is uninstrumented and TSan reports spurious races in std internals.
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@master
         with:
+          # Pinned: the sanitizer flag scoping and -Zbuild-std behaviour are
+          # nightly-only and can change under the gate with no commit in this
+          # repo. Bump deliberately, together with the commands below.
+          toolchain: nightly-2026-11-09
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -130,7 +138,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: rust/target/tsan
         run: >
-          cargo +nightly build --manifest-path rust/Cargo.toml
+          cargo +nightly-2026-11-09 build --manifest-path rust/Cargo.toml
           --target x86_64-unknown-linux-gnu
           -Zbuild-std
           --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=thread']"
