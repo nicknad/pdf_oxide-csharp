@@ -58,22 +58,29 @@ jobs:
 
       # Exit status alone cannot tell an instrumented build from an
       # uninstrumented one: a job that quietly drops the flags would still pass
-      # every scenario below. Assert on the artifact instead.
+      # every scenario below. Assert on the artifact instead. The sanitizer
+      # runtime may be linked statically into the cdylib or dynamically, so
+      # check for the runtime symbols rather than for a specific NEEDED entry,
+      # and require instrumented call sites in the code itself.
       - name: Verify the library is ASAN-instrumented
         run: |
           set -euo pipefail
           so=rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
           test -f "$so"
-          if ! readelf -d "$so" | grep -qE 'NEEDED.*libasan'; then
-            echo "::error::$so does not link the ASAN runtime"
-            readelf -d "$so"
+          echo "--- sanitizer runtime linkage:"
+          readelf -d "$so" | grep -iE 'NEEDED.*asan' || echo "  (no dynamic dependency: runtime is linked statically)"
+          if ! readelf -sW "$so" | grep -qE '__asan_(init|report_load|report_store)'; then
+            echo "::error::$so contains no ASAN runtime symbols"
+            readelf -sW "$so" | head -40
             exit 1
           fi
-          if ! nm -D "$so" | grep -qE ' U __asan_'; then
-            echo "::error::$so has no references to ASAN runtime symbols"
+          sites=$(objdump -d "$so" | grep -c '__asan_report' || true)
+          echo "--- ASAN report call sites in .text: $sites"
+          if [ "$sites" -eq 0 ]; then
+            echo "::error::$so has an ASAN runtime but no instrumented call sites"
             exit 1
           fi
-          echo "ASAN runtime linked and referenced: ok"
+          echo "ASAN instrumentation verified in the artifact."
 
       - name: Build ABI driver with ASAN
         run: >
@@ -133,16 +140,20 @@ jobs:
           set -euo pipefail
           so=rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
           test -f "$so"
-          if ! readelf -d "$so" | grep -qE 'NEEDED.*libtsan'; then
-            echo "::error::$so does not link the TSan runtime"
-            readelf -d "$so"
+          echo "--- sanitizer runtime linkage:"
+          readelf -d "$so" | grep -iE 'NEEDED.*tsan' || echo "  (no dynamic dependency: runtime is linked statically)"
+          if ! readelf -sW "$so" | grep -qE '__tsan_(init|read|write|func_entry)'; then
+            echo "::error::$so contains no TSan runtime symbols"
+            readelf -sW "$so" | head -40
             exit 1
           fi
-          if ! nm -D "$so" | grep -qE ' U __tsan_'; then
-            echo "::error::$so has no references to TSan runtime symbols"
+          sites=$(objdump -d "$so" | grep -cE '__tsan_(read|write|func_entry)' || true)
+          echo "--- TSan instrumentation call sites in .text: $sites"
+          if [ "$sites" -eq 0 ]; then
+            echo "::error::$so has a TSan runtime but no instrumented call sites"
             exit 1
           fi
-          echo "TSan runtime linked and referenced: ok"
+          echo "TSan instrumentation verified in the artifact."
 
       - name: Build ABI driver with TSan
         run: >
