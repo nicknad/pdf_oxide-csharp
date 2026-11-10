@@ -124,7 +124,7 @@ jobs:
         run: dotnet pack csharp/PdfOxideBindings/PdfOxideBindings.csproj --configuration Release
 
       - name: Upload NuGet package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nupkg
           path: csharp/PdfOxideBindings/bin/Release/*.nupkg
