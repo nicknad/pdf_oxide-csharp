@@ -29,17 +29,51 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `-Zbuild-std` needs the standard library sources.
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-asan
 
+      # Sanitizer flags belong in `target.<triple>.rustflags`, never in
+      # `RUSTFLAGS`: the latter also reaches host units (build scripts and
+      # proc-macro crates), which is what produced
+      # "building proc macro crate with sanitizers enabled is not supported"
+      # (bytemuck_derive) and the `unicode_ident` ABI-mismatch error.
+      # An explicit `--target` is what makes cargo treat build scripts as host
+      # units in the first place. `-Zbuild-std` instruments std as well, so the
+      # whole target-side dependency graph shares one sanitizer configuration.
       - name: Build instrumented native library
         env:
-          RUSTFLAGS: "-Zsanitizer=address"
           CARGO_TARGET_DIR: rust/target/asan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          -Zbuild-std
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=address']"
+
+      # Exit status alone cannot tell an instrumented build from an
+      # uninstrumented one: a job that quietly drops the flags would still pass
+      # every scenario below. Assert on the artifact instead.
+      - name: Verify the library is ASAN-instrumented
+        run: |
+          set -euo pipefail
+          so=rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
+          test -f "$so"
+          if ! readelf -d "$so" | grep -qE 'NEEDED.*libasan'; then
+            echo "::error::$so does not link the ASAN runtime"
+            readelf -d "$so"
+            exit 1
+          fi
+          if ! nm -D "$so" | grep -qE ' U __asan_'; then
+            echo "::error::$so has no references to ASAN runtime symbols"
+            exit 1
+          fi
+          echo "ASAN runtime linked and referenced: ok"
 
       - name: Build ABI driver with ASAN
         run: >
@@ -49,22 +83,22 @@ jobs:
       - name: Run symbols scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so symbols
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so symbols
 
       - name: Run smoke scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so smoke
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so smoke
 
       - name: Run null-path scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so null-path
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so null-path
 
       - name: Run threads scenario
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: ./ffi_abi_driver rust/target/asan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver rust/target/asan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   tsan:
     name: TSan ABI driver
@@ -74,17 +108,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # TSan needs an instrumented std; without `-Zbuild-std` the precompiled
+      # std is uninstrumented and TSan reports spurious races in std internals.
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-tsan
 
       - name: Build ThreadSanitizer native library
         env:
-          RUSTFLAGS: "-Zsanitizer=thread"
           CARGO_TARGET_DIR: rust/target/tsan
-        run: cargo +nightly build --manifest-path rust/Cargo.toml
+        run: >
+          cargo +nightly build --manifest-path rust/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          -Zbuild-std
+          --config "target.x86_64-unknown-linux-gnu.rustflags=['-Zsanitizer=thread']"
+
+      - name: Verify the library is TSan-instrumented
+        run: |
+          set -euo pipefail
+          so=rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so
+          test -f "$so"
+          if ! readelf -d "$so" | grep -qE 'NEEDED.*libtsan'; then
+            echo "::error::$so does not link the TSan runtime"
+            readelf -d "$so"
+            exit 1
+          fi
+          if ! nm -D "$so" | grep -qE ' U __tsan_'; then
+            echo "::error::$so has no references to TSan runtime symbols"
+            exit 1
+          fi
+          echo "TSan runtime linked and referenced: ok"
 
       - name: Build ABI driver with TSan
         run: >
@@ -94,7 +152,7 @@ jobs:
       - name: Run threads scenario
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
-        run: ./ffi_abi_driver_tsan rust/target/tsan/debug/libpdfoxide_bindings.so threads
+        run: ./ffi_abi_driver_tsan rust/target/tsan/x86_64-unknown-linux-gnu/debug/libpdfoxide_bindings.so threads
 
   pageheap:
     name: Windows PageHeap crash host
