@@ -167,6 +167,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          key: sanitizers-pageheap
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -189,12 +190,80 @@ jobs:
         shell: pwsh
         run: Copy-Item runtimes/win-x64/native/pdfoxide_bindings.dll publish/pdfoxide_bindings.dll -Force
 
+      # The previous version of this job assumed gflags.exe was preinstalled on
+      # the runner image and threw when it was not. The Windows SDK on the image
+      # does not ship Debugging Tools, so provision them explicitly and record
+      # what happened instead of assuming success.
+      - name: Provision Debugging Tools for Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Find-Gflags {
+            $roots = @(
+              "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers",
+              "$env:ProgramFiles\Windows Kits\10\Debuggers"
+            )
+            foreach ($root in $roots) {
+              if (Test-Path $root) {
+                $hit = Get-ChildItem -Path $root -Recurse -Filter gflags.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match '\\x64\\' } |
+                  Select-Object -First 1
+                if ($hit) { return $hit.FullName }
+              }
+            }
+            $cmd = Get-Command gflags.exe -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+            return $null
+          }
+
+          $gflags = Find-Gflags
+          if ($gflags) {
+            Write-Host "gflags already available: $gflags"
+            "GFLAGS=$gflags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+
+          $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
+          Write-Host "Downloading Debugging Tools for Windows."
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2196241' -OutFile $installer
+          $proc = Start-Process -FilePath $installer `
+            -ArgumentList '/features OptionId.WindowsDesktopDebuggers /quiet /norestart /ceip off' `
+            -Wait -PassThru
+          Write-Host "winsdksetup exit code: $($proc.ExitCode)"
+
+          $gflags = Find-Gflags
+          if (-not $gflags -and (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+            Write-Host "Falling back to the windbg Chocolatey package."
+            choco install windbg --no-progress -y
+            $gflags = Find-Gflags
+          }
+
+          if (-not $gflags) {
+            Write-Host "Diagnostics:"
+            Write-Host "  winsdksetup exit code: $($proc.ExitCode)"
+            Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10' -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  Kits: $_" }
+            Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  SDK: $_" }
+            throw 'gflags.exe could not be provisioned; PageHeap is unavailable on this runner.'
+          }
+
+          Write-Host "gflags available: $gflags"
+          "GFLAGS=$gflags" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Enable PageHeap
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $gflags) { throw 'gflags.exe not found; PageHeap is unavailable on this runner.' }
-          & $gflags.FullName /p /enable "$PWD\publish\FfiCrashHost.exe" /full
+          & $env:GFLAGS /p /enable "$PWD\publish\FfiCrashHost.exe" /full
+          if ($LASTEXITCODE -ne 0) { throw "gflags /p /enable failed with exit code $LASTEXITCODE" }
+          # `gflags /p` prints the images that have page heap enabled; confirm the
+          # setting actually took before trusting the scenarios below.
+          $state = & $env:GFLAGS /p
+          Write-Host $state
+          if (-not ($state -match 'FfiCrashHost')) {
+            throw 'PageHeap was requested but gflags does not report the crash host as enabled.'
+          }
 
       - name: Run safe scenarios under PageHeap
         shell: pwsh
@@ -218,7 +287,6 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $gflags = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\*\x64\gflags.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($gflags) {
-            & $gflags.FullName /p /disable "$PWD\publish\FfiCrashHost.exe"
+          if ($env:GFLAGS -and (Test-Path $env:GFLAGS)) {
+            & $env:GFLAGS /p /disable "$PWD\publish\FfiCrashHost.exe"
           }
