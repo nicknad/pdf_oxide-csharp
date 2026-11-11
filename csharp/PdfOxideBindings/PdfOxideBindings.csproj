@@ -33,19 +33,19 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="README.md" />
 
-    <!-- Ship each native binary as a RID-specific NuGet native asset. -->
+    <!--
+      Ship each native binary as a RID-specific NuGet native asset and copy it
+      next to project-reference builds. These stay a single None item: NuGet
+      merges duplicate None/Content items, and a Content item with Pack="false"
+      silently drops the native assets from the package.
+    -->
     <None Include="../../runtimes/**/*"
           Pack="true"
           PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
           Visible="false" />
-
-    <!-- Keep project-reference builds runnable on the current host. -->
-    <Content Include="../../runtimes/**/*">
-      <Link>%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <Pack>false</Pack>
-    </Content>
   </ItemGroup>
 
 </Project>

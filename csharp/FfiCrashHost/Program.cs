@@ -30,16 +30,22 @@ internal static class Program
         try
         {
             ScenarioResult result = scenario(scenarioArgs);
-            Console.Out.WriteLine($"scenario={scenarioName}");
-            Console.Out.WriteLine($"result={result.Status}");
-            if (result.Error is not null)
+            (string status, string? error, string? detail) = result switch
             {
-                Console.Out.WriteLine($"error={Escape(result.Error)}");
+                ScenarioSucceeded succeeded => ("ok", null, succeeded.Detail),
+                ScenarioFailed failed => ("error", failed.Error, failed.Detail),
+            };
+
+            Console.Out.WriteLine($"scenario={scenarioName}");
+            Console.Out.WriteLine($"result={status}");
+            if (error is not null)
+            {
+                Console.Out.WriteLine($"error={Escape(error)}");
             }
 
-            if (result.Detail is not null)
+            if (detail is not null)
             {
-                Console.Out.WriteLine($"detail={Escape(result.Detail)}");
+                Console.Out.WriteLine($"detail={Escape(detail)}");
             }
 
             return ExitOk;

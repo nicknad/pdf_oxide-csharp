@@ -24,7 +24,7 @@ public class NativeAbiTests
         try
         {
             var missing = new List<string>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> seen = [with(StringComparer.Ordinal)];
             int checkedCount = 0;
 
             foreach (MethodInfo method in typeof(NativeMethods).GetMethods(

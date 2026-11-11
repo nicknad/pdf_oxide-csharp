@@ -423,11 +423,12 @@ namespace PdfOxide
                     }
 
                     int count = UpstreamNativeMethods.pdf_oxide_annotation_count(list);
-                    var annotations = new List<PdfAnnotationInfo>(Math.Max(count, 0));
-                    for (int index = 0; index < count; index++)
-                    {
-                        annotations.Add(ReadAnnotation(list, index));
-                    }
+                    int safeCount = Math.Max(count, 0);
+                    List<PdfAnnotationInfo> annotations =
+                    [
+                        with(capacity: safeCount),
+                        .. Enumerable.Range(0, safeCount).Select(index => ReadAnnotation(list, index)),
+                    ];
 
                     return annotations;
                 }

@@ -10,12 +10,23 @@ using PdfOxide;
 
 namespace FfiCrashHost;
 
-internal sealed record ScenarioResult(string Status, string? Error = null, string? Detail = null)
+/// <summary>
+/// The outcome of a crash-host scenario: exactly one of success or failure.
+/// </summary>
+/// <remarks>
+/// The hierarchy is closed so the host can switch over every outcome without a
+/// default arm; adding an outcome forces that switch to be updated.
+/// </remarks>
+internal closed record class ScenarioResult
 {
-    internal static ScenarioResult Ok(string? detail = null) => new("ok", null, detail);
+    internal static ScenarioResult Ok(string? detail = null) => new ScenarioSucceeded(detail);
 
-    internal static ScenarioResult Fail(string? error, string? detail = null) => new("error", error, detail);
+    internal static ScenarioResult Fail(string? error, string? detail = null) => new ScenarioFailed(error, detail);
 }
+
+internal sealed record class ScenarioSucceeded(string? Detail) : ScenarioResult;
+
+internal sealed record class ScenarioFailed(string? Error, string? Detail) : ScenarioResult;
 
 internal delegate ScenarioResult ScenarioRunner(IReadOnlyList<string> arguments);
 

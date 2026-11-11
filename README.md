@@ -15,8 +15,26 @@ The C# API is the same on both platforms. The native libraries are separate buil
 
 ## Build prerequisites
 
-- Rust stable and the .NET 10 SDK on Windows.
+- Rust stable and the .NET 11 SDK on Windows (C# 15, `net11.0`).
 - `wslc` with the `rust:1-bookworm` image available for the Debian Linux build. The build script runs the Linux build inside that container and mounts this checkout at `/workspace`.
+
+The managed projects target `net11.0` with `LangVersion` 15. The SDK pin is in `global.json`; the CI workflows install the matching `11.0.x` SDK.
+
+## C# 15 image source union
+
+APIs that accept an image from either a file or memory take a `PdfImageSource` union. A `string` converts to the path case and a `byte[]` converts to the encoded-bytes case:
+
+```csharp
+PdfImageSource logo = "logo.png";
+PdfImageSource preview = File.ReadAllBytes("preview.png");
+
+page.Image(logo, new PdfRect(72, 200, 64, 64));
+page.Image(preview, new PdfRect(200, 200, 64, 64));
+
+byte[] pdf = PdfConverter.ConvertImageToBytes(preview);
+```
+
+The existing `string` and `byte[]` overloads remain available.
 
 ## Build and pack
 

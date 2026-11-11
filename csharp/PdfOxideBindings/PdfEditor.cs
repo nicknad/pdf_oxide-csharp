@@ -965,20 +965,12 @@ namespace PdfOxide
                     }
 
                     int count = UpstreamNativeMethods.pdf_oxide_form_field_count(list);
-                    var fields = new List<PdfFormFieldInfo>(Math.Max(count, 0));
-                    for (int index = 0; index < count; index++)
-                    {
-                        fields.Add(new PdfFormFieldInfo
-                        {
-                            Name = ReadFormString(list, index, FormStringField.Name) ?? string.Empty,
-                            Type = ReadFormString(list, index, FormStringField.Type) ?? string.Empty,
-                            Value = ReadFormString(list, index, FormStringField.Value) ?? string.Empty,
-                            IsReadOnly = UpstreamNativeMethods.pdf_oxide_form_field_is_readonly(
-                                list, index, &errorCode) != 0,
-                            IsRequired = UpstreamNativeMethods.pdf_oxide_form_field_is_required(
-                                list, index, &errorCode) != 0,
-                        });
-                    }
+                    int safeCount = Math.Max(count, 0);
+                    List<PdfFormFieldInfo> fields =
+                    [
+                        with(capacity: safeCount),
+                        .. Enumerable.Range(0, safeCount).Select(index => ReadFormField(list, index)),
+                    ];
 
                     return fields;
                 }
@@ -1115,19 +1107,13 @@ namespace PdfOxide
                 return;
             }
 
-            var pages = new List<int>();
-            if (_flattenAllAnnotationsPending)
-            {
-                int pageCount = GetPageCountCore();
-                for (int page = 0; page < pageCount; page++)
-                {
-                    pages.Add(page);
-                }
-            }
-            else
-            {
-                pages.AddRange(_pendingFlattenAnnotationPages);
-            }
+            int pageCount = _flattenAllAnnotationsPending
+                ? GetPageCountCore()
+                : _pendingFlattenAnnotationPages.Count;
+
+            List<int> pages = _flattenAllAnnotationsPending
+                ? [with(capacity: pageCount), .. Enumerable.Range(0, pageCount)]
+                : [with(capacity: pageCount), .. _pendingFlattenAnnotationPages];
 
             var document = new PdfDocument(outputPath);
             using (PdfEditor post = PdfEditor.Open(outputPath))
@@ -1242,6 +1228,21 @@ namespace PdfOxide
             int count = UpstreamNativeMethods.document_editor_get_page_count(_handle, &errorCode);
             ThrowIfFailed(count, errorCode, "document_editor_get_page_count");
             return count;
+        }
+
+        private static unsafe PdfFormFieldInfo ReadFormField(IntPtr list, int index)
+        {
+            int errorCode = 0;
+            return new PdfFormFieldInfo
+            {
+                Name = ReadFormString(list, index, FormStringField.Name) ?? string.Empty,
+                Type = ReadFormString(list, index, FormStringField.Type) ?? string.Empty,
+                Value = ReadFormString(list, index, FormStringField.Value) ?? string.Empty,
+                IsReadOnly = UpstreamNativeMethods.pdf_oxide_form_field_is_readonly(
+                    list, index, &errorCode) != 0,
+                IsRequired = UpstreamNativeMethods.pdf_oxide_form_field_is_required(
+                    list, index, &errorCode) != 0,
+            };
         }
 
         private static unsafe string? ReadFormString(
