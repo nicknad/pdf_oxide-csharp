@@ -240,6 +240,26 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Adds an image from a file path or from in-memory bytes at a rectangle.
+        /// </summary>
+        /// <param name="source">The image source: a file path or the encoded image bytes.</param>
+        /// <param name="rect">The destination rectangle in points.</param>
+        /// <param name="altText">Optional alternative text.</param>
+        /// <returns>The current page builder for method chaining.</returns>
+        /// <exception cref="ArgumentException">Thrown when the source holds no value or the file path is empty.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native image operation fails.</exception>
+        public PdfPageBuilder Image(PdfImageSource source, PdfRect rect, string? altText = null)
+        {
+            return source switch
+            {
+                string path => Image(path, rect, altText),
+                byte[] imageData => Image(imageData, rect, altText),
+                null => throw new ArgumentException(
+                    "An image source must be a file path or encoded image bytes.", nameof(source)),
+            };
+        }
+
+        /// <summary>
         /// Adds a URL link annotation over the most recent text.
         /// </summary>
         /// <param name="url">The URL to open when the link is clicked.</param>

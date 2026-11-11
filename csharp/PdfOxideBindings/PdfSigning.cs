@@ -365,16 +365,16 @@ namespace PdfOxide
                 if (count == 0)
                 {
                     List<BareSignature> bare = ParseBareSignatures(pdf);
-                    var bareInfo = new List<PdfSignatureInfo>(bare.Count);
-                    foreach (BareSignature signature in bare)
-                    {
-                        bareInfo.Add(new PdfSignatureInfo(
+                    List<PdfSignatureInfo> bareInfo =
+                    [
+                        with(capacity: bare.Count),
+                        .. bare.Select(signature => new PdfSignatureInfo(
                             signature.SignerName,
                             signature.SigningTime,
                             signature.Reason,
                             signature.Location,
-                            HasTimestamp: false));
-                    }
+                            HasTimestamp: false)),
+                    ];
 
                     return bareInfo;
                 }

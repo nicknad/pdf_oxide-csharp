@@ -50,7 +50,11 @@ namespace PdfOxideTests
                 IReadOnlyList<PdfFormFieldInfo> fields = editor.GetFormFields();
                 Assert.True(fields.Count >= 7, $"Expected at least 7 form fields, found {fields.Count}.");
 
-                var names = fields.Select(field => field.Name).ToHashSet(StringComparer.Ordinal);
+                HashSet<string> names =
+                [
+                    with(StringComparer.Ordinal),
+                    .. fields.Select(field => field.Name),
+                ];
                 foreach (string expected in new[]
                          {
                              "name", "agree", "country", "tags", "choice", "submit", "sig",

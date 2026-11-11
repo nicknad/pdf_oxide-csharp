@@ -78,6 +78,8 @@ namespace PdfOxideTests
             try
             {
                 File.WriteAllBytes(imagePath, OnePixelPng);
+                PdfImageSource fileImage = imagePath;
+                PdfImageSource memoryImage = OnePixelPng;
 
                 using (var builder = new DocumentBuilder())
                 {
@@ -95,8 +97,8 @@ namespace PdfOxideTests
                     builder.AddPage(PdfPageSize.A4)
                         .Columns(2, 12f, "first column content second column content")
                         .Table(table)
-                        .Image(imagePath, new PdfRect(72f, 200f, 64f, 64f), "file image")
-                        .Image(OnePixelPng, new PdfRect(200f, 200f, 64f, 64f), "memory image");
+                        .Image(fileImage, new PdfRect(72f, 200f, 64f, 64f), "file image")
+                        .Image(memoryImage, new PdfRect(200f, 200f, 64f, 64f), "memory image");
 
                     builder.Save(path);
                 }
@@ -138,6 +140,16 @@ namespace PdfOxideTests
             {
                 File.Delete(path);
             }
+        }
+
+        [Fact]
+        public void RejectsAnImageSourceWithNoValue()
+        {
+            using var builder = new DocumentBuilder();
+            PdfImageSource source = default;
+
+            Assert.Throws<ArgumentException>(
+                () => builder.AddPage().Image(source, new PdfRect(72f, 200f, 64f, 64f)));
         }
 
         [Fact]

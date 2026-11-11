@@ -208,6 +208,31 @@ namespace PdfOxide
         }
 
         /// <summary>
+        /// Creates a single-page PDF from an image supplied as a path or as bytes.
+        /// </summary>
+        /// <param name="source">The image source: a file path or the encoded image bytes.</param>
+        /// <param name="outputPath">The path where the PDF will be saved.</param>
+        /// <exception cref="ArgumentException">Thrown when the source holds no value, the path is empty, or outputPath is null or empty.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native conversion or save fails.</exception>
+        public static void ConvertImage(PdfImageSource source, string outputPath)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(outputPath);
+
+            switch (source)
+            {
+                case string imagePath:
+                    ConvertImage(imagePath, outputPath);
+                    break;
+                case byte[] imageData:
+                    ConvertImage(imageData, outputPath);
+                    break;
+                default:
+                    throw new ArgumentException(
+                        "An image source must be a file path or encoded image bytes.", nameof(source));
+            }
+        }
+
+        /// <summary>
         /// Creates a single-page PDF from image data and returns it as a byte array.
         /// </summary>
         /// <param name="imageData">The image file bytes.</param>
@@ -224,6 +249,27 @@ namespace PdfOxide
             }
 
             IntPtr handle = CreateImageHandle(imageData);
+            return SaveHandleToBytes(handle, "image conversion");
+        }
+
+        /// <summary>
+        /// Creates a single-page PDF from an image supplied as a path or as bytes
+        /// and returns it as a byte array.
+        /// </summary>
+        /// <param name="source">The image source: a file path or the encoded image bytes.</param>
+        /// <returns>The generated PDF bytes.</returns>
+        /// <exception cref="ArgumentException">Thrown when the source holds no value or the file path is empty.</exception>
+        /// <exception cref="PdfOxideException">Thrown when the native conversion fails.</exception>
+        public static byte[] ConvertImageToBytes(PdfImageSource source)
+        {
+            IntPtr handle = source switch
+            {
+                string imagePath => CreateImageHandle(imagePath),
+                byte[] imageData => CreateImageHandle(imageData),
+                null => throw new ArgumentException(
+                    "An image source must be a file path or encoded image bytes.", nameof(source)),
+            };
+
             return SaveHandleToBytes(handle, "image conversion");
         }
 

@@ -152,6 +152,38 @@ namespace PdfOxideTests
             }
         }
 
+        [Fact]
+        public void ConvertsImageSourceUnionToFileAndBytes()
+        {
+            string imagePath = TemporaryPath("png");
+            string fromPath = TemporaryPath();
+            string fromBytes = TemporaryPath();
+
+            try
+            {
+                byte[] image = Convert.FromBase64String(OnePixelPngBase64);
+                File.WriteAllBytes(imagePath, image);
+
+                PdfImageSource pathSource = imagePath;
+                PdfImageSource bytesSource = image;
+
+                PdfConverter.ConvertImage(pathSource, fromPath);
+                PdfConverter.ConvertImage(bytesSource, fromBytes);
+
+                Assert.Equal(1, new PdfDocument(fromPath).GetPageCount());
+                Assert.Equal(1, new PdfDocument(fromBytes).GetPageCount());
+
+                byte[] pdf = PdfConverter.ConvertImageToBytes(bytesSource);
+                Assert.True(pdf.Length > 0);
+            }
+            finally
+            {
+                File.Delete(imagePath);
+                File.Delete(fromPath);
+                File.Delete(fromBytes);
+            }
+        }
+
         private static string TemporaryPath(string extension = "pdf")
         {
             return Path.Combine(Path.GetTempPath(), $"pdfoxide-creation-{Guid.NewGuid():N}.{extension}");
